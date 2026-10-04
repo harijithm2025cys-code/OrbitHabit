@@ -6,15 +6,15 @@ import android.content.Intent;
 import android.util.Log;
 
 /**
- * Receives BOOT_COMPLETED and MY_PACKAGE_REPLACED broadcasts to restart
- * the app's alarm reminders after a device reboot or app update.
+ * Native Boot & Time-Change Receiver.
  *
- * On boot, Capacitor LocalNotifications' scheduled alarms are wiped by Android.
- * This receiver launches the app in the background so it can reschedule them.
- *
- * Note: On Android 10+ the app cannot start a full Activity from the background,
- * so we start the app via a low-priority headless launch. The JS bridge's
- * rescheduleAllReminders() will run as part of normal app initialization.
+ * Does NOT start an Activity (which is blocked from background on modern Android).
+ * Instead, directly re-arms all exact alarms from SharedPreferences on:
+ * - BOOT_COMPLETED
+ * - QUICKBOOT_POWERON (Xiaomi / HyperOS fastboot)
+ * - MY_PACKAGE_REPLACED (App update)
+ * - TIME_SET (User changes system clock)
+ * - TIMEZONE_CHANGED (Timezone change / DST transitions)
  */
 public class BootReceiver extends BroadcastReceiver {
 
@@ -22,29 +22,27 @@ public class BootReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        if (context == null || intent == null) return;
         final String action = intent.getAction();
         if (action == null) return;
 
-        Log.i(TAG, "Received broadcast: " + action);
+        Log.i(TAG, "Received system broadcast: " + action);
 
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
+                || Intent.ACTION_TIME_CHANGED.equals(action)
+                || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
                 || "android.intent.action.QUICKBOOT_POWERON".equals(action)) {
 
-            Log.i(TAG, "Scheduling alarm reschedule via app launch on: " + action);
-
-            // Launch the app silently in the background so Capacitor can
-            // reschedule alarms via rescheduleAllReminders() on init.
-            Intent launchIntent = new Intent(context, MainActivity.class);
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    | Intent.FLAG_FROM_BACKGROUND);
-            launchIntent.putExtra("boot_reschedule", true);
-
+            Log.i(TAG, "Re-arming all native alarms from SharedPreferences on: " + action);
             try {
-                context.startActivity(launchIntent);
+                // Ensure channels exist
+                AlarmScheduler.createAllNotificationChannels(context);
+                // Re-arm all saved alarms
+                AlarmScheduler.reArmAllAlarms(context);
+                Log.i(TAG, "✓ Native alarms successfully re-armed.");
             } catch (Exception e) {
-                Log.w(TAG, "Could not launch app from boot receiver: " + e.getMessage());
+                Log.e(TAG, "Failed to re-arm alarms on " + action + ": " + e.getMessage(), e);
             }
         }
     }

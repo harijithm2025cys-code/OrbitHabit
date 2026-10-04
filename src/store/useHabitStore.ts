@@ -65,7 +65,44 @@ export const useHabitStore = create<HabitState>((set, get) => ({
   },
 
   updateHabit: async (habit) => {
-    await habitRepository.update(habit);
+    // Strip extra store fields before updateHabit
+    const {
+      today_progress,
+      today_completed,
+      streak_current,
+      streak_best,
+      ...cleanHabit
+    } = habit as any;
+
+    const previousHabit = await habitRepository.getById(cleanHabit.id);
+
+    await habitRepository.update(cleanHabit);
+
+    const todayStr = getTodayString();
+    const todayLog = await logRepository.getLog(cleanHabit.id, todayStr);
+
+    if (todayLog) {
+      // If type changed, reset today's progress
+      if (previousHabit && previousHabit.type !== cleanHabit.type) {
+        await logRepository.upsertLog({
+          ...todayLog,
+          progress: 0,
+          completed: 0,
+          completed_at: null
+        });
+      } else if (cleanHabit.target_value !== undefined) {
+        // When target value changes, recompute today's log completed from progress >= new target
+        const isDone = todayLog.progress >= cleanHabit.target_value ? 1 : 0;
+        if (todayLog.completed !== isDone) {
+          await logRepository.upsertLog({
+            ...todayLog,
+            completed: isDone,
+            completed_at: isDone ? (todayLog.completed_at || Date.now()) : null
+          });
+        }
+      }
+    }
+
     await get().loadHabits();
   },
 

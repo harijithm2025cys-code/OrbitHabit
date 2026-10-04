@@ -15,6 +15,16 @@ import com.getcapacitor.JSObject;
 @CapacitorPlugin(name = "NativeAlarmHelper")
 public class NativeAlarmHelperPlugin extends Plugin {
 
+    public static String lastTappedHabitId = null;
+
+    @PluginMethod
+    public void getNotificationLaunchHabitId(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("habitId", lastTappedHabitId);
+        lastTappedHabitId = null; // consume once
+        call.resolve(ret);
+    }
+
     @PluginMethod
     public void getDeviceInfo(PluginCall call) {
         JSObject ret = new JSObject();
@@ -121,37 +131,269 @@ public class NativeAlarmHelperPlugin extends Plugin {
         }
 
         String manufacturer = (Build.MANUFACTURER != null ? Build.MANUFACTURER : "").toLowerCase();
-        Intent intent = new Intent();
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        String brand = (Build.BRAND != null ? Build.BRAND : "").toLowerCase();
 
-        try {
-            if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco")) {
-                intent.setComponent(new android.content.ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"));
-            } else if (manufacturer.contains("oppo") || manufacturer.contains("realme")) {
-                intent.setComponent(new android.content.ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"));
-            } else if (manufacturer.contains("vivo")) {
-                intent.setComponent(new android.content.ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity"));
-            } else if (manufacturer.contains("huawei") || manufacturer.contains("honor")) {
-                intent.setComponent(new android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
-            } else if (manufacturer.contains("samsung")) {
-                intent.setAction(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-            } else {
-                intent.setAction(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-            }
-            context.startActivity(intent);
-            call.resolve();
-        } catch (Exception e) {
-            // Fallback to application details settings
-            try {
-                Intent appSettings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                appSettings.setData(Uri.parse("package:" + context.getPackageName()));
-                appSettings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(appSettings);
-                call.resolve();
-            } catch (Exception ex) {
-                call.reject(ex.getMessage());
+        // 1. Vivo / iQOO (OriginOS / FuntouchOS)
+        if (manufacturer.contains("vivo") || manufacturer.contains("iqoo") || brand.contains("vivo") || brand.contains("iqoo")) {
+            Intent[] vivoIntents = new Intent[] {
+                // High background power consumption whitelist
+                new Intent().setComponent(new android.content.ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.AddWhiteListActivity")),
+                // Background start manager
+                new Intent().setComponent(new android.content.ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager")),
+                // Vivo permission manager startup
+                new Intent().setComponent(new android.content.ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")),
+                // Vivo purview tab
+                new Intent().setComponent(new android.content.ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.PurviewTabActivity")),
+                // Vivo application behavior engine
+                new Intent().setComponent(new android.content.ComponentName("com.vivo.abe", "com.vivo.applicationbehaviorengine.ui.ExcessivePowerManagerActivity")),
+                // Fallback to standard battery ignore
+                new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            };
+
+            for (Intent it : vivoIntents) {
+                try {
+                    it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(it);
+                    call.resolve();
+                    return;
+                } catch (Exception ignored) {}
             }
         }
+
+        // 2. Xiaomi / Redmi / POCO
+        if (manufacturer.contains("xiaomi") || manufacturer.contains("redmi") || manufacturer.contains("poco")) {
+            try {
+                Intent it = new Intent();
+                it.setComponent(new android.content.ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"));
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(it);
+                call.resolve();
+                return;
+            } catch (Exception ignored) {}
+        }
+
+        // 3. Oppo / Realme
+        if (manufacturer.contains("oppo") || manufacturer.contains("realme")) {
+            try {
+                Intent it = new Intent();
+                it.setComponent(new android.content.ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"));
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(it);
+                call.resolve();
+                return;
+            } catch (Exception ignored) {}
+        }
+
+        // 4. Huawei / Honor
+        if (manufacturer.contains("huawei") || manufacturer.contains("honor")) {
+            try {
+                Intent it = new Intent();
+                it.setComponent(new android.content.ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(it);
+                call.resolve();
+                return;
+            } catch (Exception ignored) {}
+        }
+
+        // 5. Standard Battery Optimization
+        try {
+            Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            call.resolve();
+            return;
+        } catch (Exception ignored) {}
+
+        // Fallback to application details settings
+        try {
+            Intent appSettings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            appSettings.setData(Uri.parse("package:" + context.getPackageName()));
+            appSettings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(appSettings);
+            call.resolve();
+        } catch (Exception ex) {
+            call.reject(ex.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void scheduleReminders(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            android.app.AlarmManager am = (android.app.AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (am != null && !am.canScheduleExactAlarms()) {
+                call.reject("SCHEDULE_EXACT_ALARM_PERMISSION_REQUIRED");
+                return;
+            }
+        }
+
+        try {
+            com.getcapacitor.JSArray remindersArr = call.getArray("reminders");
+            if (remindersArr == null) {
+                call.reject("reminders array is required");
+                return;
+            }
+
+            java.util.List<AlarmScheduler.ReminderItem> currentSaved = AlarmScheduler.loadReminders(context);
+            java.util.List<AlarmScheduler.ReminderItem> updatedList = new java.util.ArrayList<>(currentSaved);
+            int scheduledCount = 0;
+
+            for (int i = 0; i < remindersArr.length(); i++) {
+                org.json.JSONObject obj = remindersArr.getJSONObject(i);
+                AlarmScheduler.ReminderItem item = AlarmScheduler.ReminderItem.fromJson(obj);
+
+                // Replace if existing with same id
+                for (int j = updatedList.size() - 1; j >= 0; j--) {
+                    if (updatedList.get(j).id.equals(item.id)) {
+                        updatedList.remove(j);
+                    }
+                }
+
+                if (item.enabled) {
+                    boolean ok = AlarmScheduler.armNextOccurrence(context, item);
+                    if (!ok) {
+                        call.reject("Failed to arm exact alarm for reminder: " + item.title);
+                        return;
+                    }
+                    scheduledCount++;
+                } else {
+                    AlarmScheduler.cancelAlarm(context, item.id);
+                }
+                updatedList.add(item);
+            }
+
+            AlarmScheduler.saveReminders(context, updatedList);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("count", scheduledCount);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Error scheduling reminders: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void cancelReminders(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+
+        try {
+            com.getcapacitor.JSArray idsArr = call.getArray("ids");
+            if (idsArr == null) {
+                call.reject("ids array is required");
+                return;
+            }
+
+            java.util.List<AlarmScheduler.ReminderItem> saved = AlarmScheduler.loadReminders(context);
+            java.util.List<AlarmScheduler.ReminderItem> remaining = new java.util.ArrayList<>();
+
+            java.util.List<String> idsToCancel = new java.util.ArrayList<>();
+            for (int i = 0; i < idsArr.length(); i++) {
+                idsToCancel.add(idsArr.getString(i));
+            }
+
+            for (AlarmScheduler.ReminderItem item : saved) {
+                if (idsToCancel.contains(item.id)) {
+                    AlarmScheduler.cancelAlarm(context, item.id);
+                } else {
+                    remaining.add(item);
+                }
+            }
+
+            AlarmScheduler.saveReminders(context, remaining);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Error cancelling reminders: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void listReminders(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+
+        try {
+            java.util.List<AlarmScheduler.ReminderItem> list = AlarmScheduler.loadReminders(context);
+            com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
+            for (AlarmScheduler.ReminderItem item : list) {
+                arr.put(item.toJson());
+            }
+            JSObject ret = new JSObject();
+            ret.put("reminders", arr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject(e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void getPendingActions(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+
+        try {
+            org.json.JSONArray actions = AlarmScheduler.getPendingActions(context);
+            com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
+            for (int i = 0; i < actions.length(); i++) {
+                arr.put(actions.getJSONObject(i));
+            }
+            JSObject ret = new JSObject();
+            ret.put("actions", arr);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject(e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void clearPendingActions(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+
+        AlarmScheduler.clearPendingActions(context);
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void getLastDeliveredAlarm(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+
+        android.content.SharedPreferences prefs = context.getSharedPreferences(AlarmScheduler.PREFS_NAME, Context.MODE_PRIVATE);
+        String title = prefs.getString(AlarmScheduler.KEY_LAST_DELIVERED_TITLE, null);
+        long timeMs = prefs.getLong(AlarmScheduler.KEY_LAST_DELIVERED_TIME, 0);
+
+        JSObject ret = new JSObject();
+        ret.put("title", title);
+        ret.put("timeMs", timeMs);
+        call.resolve(ret);
     }
 
     @PluginMethod

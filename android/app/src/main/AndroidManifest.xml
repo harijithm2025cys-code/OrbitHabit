@@ -33,7 +33,7 @@
             android:foregroundServiceType="location"
             android:exported="false" />
 
-        <!-- Boot receiver: reschedules all alarms after device reboot or app update -->
+        <!-- Boot receiver: reschedules all alarms after device reboot, app update, or time changes -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -44,7 +44,31 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <!-- Reschedule after app update -->
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <!-- Reschedule when device time or timezone changes -->
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Native Reminder Alarm Receiver: fires exact alarm and posts notification -->
+        <receiver
+            android:name=".ReminderAlarmReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.orbithabit.ALARM_TRIGGER" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Native Notification Action Receiver: handles Done and Snooze 10m -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.orbithabit.ACTION_DONE" />
+                <action android:name="com.orbithabit.ACTION_SNOOZE" />
             </intent-filter>
         </receiver>
     </application>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { NavTab, BottomNav } from './components/ui/BottomNav';
 import { ToastContainer, ToastMessage } from './components/ui/Toast';
@@ -15,6 +15,7 @@ import { MoneyPage } from './pages/MoneyPage';
 import { AddTransactionPage } from './pages/AddTransactionPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { OnboardingPage } from './pages/OnboardingPage';
+import { NotificationService } from './core/services/notificationService';
 import { generateId } from './core/utils/id';
 
 export interface RouteState {
@@ -59,6 +60,38 @@ export const Router: React.FC = () => {
     }
     return 'home';
   };
+
+  useEffect(() => {
+    let resumeSub: any = null;
+
+    async function checkDeepLink() {
+      try {
+        const habitId = await NotificationService.getNotificationLaunchHabitId();
+        if (habitId) {
+          console.log('[Router] Deep link launch to habit:', habitId);
+          navigate('habit-detail', { id: habitId });
+        }
+      } catch (err) {
+        console.warn('[Router] Failed to check launch habit id:', err);
+      }
+    }
+
+    checkDeepLink();
+
+    import('@capacitor/app')
+      .then(({ App: CapApp }) => {
+        CapApp.addListener('resume', () => {
+          checkDeepLink();
+        }).then((sub) => {
+          resumeSub = sub;
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      resumeSub?.remove?.();
+    };
+  }, []);
 
   // If onboarding is not completed yet, show Onboarding Flow (F1)
   if (!onboardingCompleted && route.currentRoute !== 'onboarding') {
@@ -124,13 +157,15 @@ export const Router: React.FC = () => {
             onBack={() => navigate('habit-detail', { id: route.params?.id || '' })}
             onSave={async (habitData) => {
               if (route.params?.id) {
-                await updateHabit({
+                const merged = {
                   ...(habitToEdit || {}),
                   ...habitData,
                   id: route.params.id,
                   created_at: habitToEdit?.created_at || Date.now(),
                   archived: habitToEdit?.archived || 0
-                });
+                };
+                const { today_progress, today_completed, streak_current, streak_best, ...cleanHabit } = merged;
+                await updateHabit(cleanHabit);
               }
             }}
             onShowToast={showToast}

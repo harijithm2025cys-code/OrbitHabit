@@ -19,6 +19,7 @@ export const App: React.FC = () => {
         await initializeDatabase();
         await seedInitialDataIfEmpty();
         await useHabitStore.getState().loadHabits();
+        await NotificationService.processPendingActions();
         await NotificationService.initializeChannels();
         await NotificationService.rescheduleAllReminders();
       } catch (err) {
@@ -31,9 +32,14 @@ export const App: React.FC = () => {
     async function setupResumeListener() {
       try {
         const { App: CapApp } = await import('@capacitor/app');
-        resumeListener = await CapApp.addListener('resume', () => {
-          console.log('[App] Resumed from background — rescheduling reminders');
-          NotificationService.rescheduleAllReminders().catch(console.warn);
+        resumeListener = await CapApp.addListener('resume', async () => {
+          console.log('[App] Resumed from background — processing actions and checking reminders');
+          try {
+            await NotificationService.processPendingActions();
+            await NotificationService.rescheduleAllReminders();
+          } catch (err) {
+            console.warn('[App] Error during resume sync:', err);
+          }
         });
       } catch {
         // Not on native — no-op

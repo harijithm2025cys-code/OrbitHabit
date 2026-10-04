@@ -89,6 +89,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
     isIgnoringBattery: boolean;
   } | null>(null);
   const [pendingNotifs, setPendingNotifs] = useState<any[]>([]);
+  const [lastDeliveredAlarm, setLastDeliveredAlarm] = useState<{ title: string | null; timeMs: number } | null>(null);
   const [isTestingNotif, setIsTestingNotif] = useState(false);
 
   useEffect(() => {
@@ -104,6 +105,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
     setLocationHealth(loc);
     const pending = await NotificationService.getPendingList();
     setPendingNotifs(pending);
+    const lastDel = await NotificationService.getLastDeliveredAlarm();
+    setLastDeliveredAlarm(lastDel);
     setShowHealthModal(true);
   };
 
@@ -676,39 +679,91 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
             </div>
           </div>
 
-          {/* OEM Background App Killing Advice */}
-          <div className="p-3 rounded-xl bg-space-900/90 border border-white/10 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-[var(--text-main)] flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-neon-purple" /> Background Protection
-              </span>
-              <button
-                onClick={handleOpenOemSettings}
-                className="text-[11px] text-neon-cyan hover:underline font-semibold"
-              >
-                Open Device Settings →
-              </button>
-            </div>
-            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-              Brands like Xiaomi/POCO, Samsung, Oppo, Vivo kill background apps to save battery. For 100% reliable alarms when app is closed:
-            </p>
-            <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
-              <li>Enable <strong>Autostart</strong> for OrbitHabit.</li>
-              <li>Set Battery saver to <strong>No restrictions</strong>.</li>
-              <li>Lock OrbitHabit in the recent apps tray.</li>
-            </ul>
+          {/* Last Delivered Alarm Status */}
+          <div className="p-2.5 rounded-xl bg-space-900 border border-white/5 flex items-center justify-between">
+            <span className="text-[var(--text-muted)]">Last Alarm Delivered</span>
+            <span className="font-mono text-neon-cyan">
+              {lastDeliveredAlarm?.title
+                ? `${lastDeliveredAlarm.title} (${new Date(lastDeliveredAlarm.timeMs).toLocaleDateString([], { month: 'short', day: 'numeric' })} ${new Date(lastDeliveredAlarm.timeMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+                : 'None recorded yet'}
+            </span>
           </div>
+
+          {/* OEM Background App Killing Advice (Vivo / iQOO Specific & General) */}
+          {healthStatus?.deviceInfo?.manufacturer?.toLowerCase()?.includes('vivo') ||
+          healthStatus?.deviceInfo?.brand?.toLowerCase()?.includes('vivo') ||
+          healthStatus?.deviceInfo?.manufacturer?.toLowerCase()?.includes('iqoo') ||
+          healthStatus?.deviceInfo?.brand?.toLowerCase()?.includes('iqoo') ? (
+            <div className="p-3.5 rounded-xl bg-space-900/90 border border-neon-cyan/40 space-y-2.5 shadow-[0_0_15px_rgba(0,240,255,0.15)]">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-neon-cyan flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-neon-cyan" /> Vivo / iQOO OriginOS Setup
+                </span>
+                <button
+                  onClick={handleOpenOemSettings}
+                  className="text-[11px] px-2.5 py-1 rounded bg-neon-cyan/20 text-neon-cyan font-bold hover:bg-neon-cyan/30"
+                >
+                  Open Vivo Settings →
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                OriginOS & FuntouchOS aggressively stop alarms when apps are swiped away. Complete these 4 steps for 100% reliable alarms:
+              </p>
+              <div className="space-y-1.5 text-[11px] text-slate-200">
+                <div className="flex items-start gap-1.5">
+                  <span className="font-mono font-bold text-neon-cyan">1.</span>
+                  <span><strong>Autostart:</strong> Turn <strong>ON</strong> for OrbitHabit in iManager / Settings.</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="font-mono font-bold text-neon-cyan">2.</span>
+                  <span><strong>Background Power:</strong> Set to <strong>"Allow high background power consumption"</strong>.</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="font-mono font-bold text-neon-cyan">3.</span>
+                  <span><strong>Lock in Recents:</strong> Open Recent Apps, swipe down on OrbitHabit, tap <strong>Lock</strong>.</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="font-mono font-bold text-neon-cyan">4.</span>
+                  <span><strong>Lock Screen Banners:</strong> Allow notifications on lock screen and floating banners.</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 rounded-xl bg-space-900/90 border border-white/10 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-[var(--text-main)] flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-neon-purple" /> Background Protection
+                </span>
+                <button
+                  onClick={handleOpenOemSettings}
+                  className="text-[11px] text-neon-cyan hover:underline font-semibold"
+                >
+                  Open Device Settings →
+                </button>
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                Aggressive battery managers can kill alarms when the app is swiped away. Ensure:
+              </p>
+              <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                <li>Enable <strong>Autostart</strong> for OrbitHabit.</li>
+                <li>Set Battery saver to <strong>No restrictions</strong>.</li>
+                <li>Lock OrbitHabit in the recent apps tray.</li>
+              </ul>
+            </div>
+          )}
 
           {/* Pending Native Alarms Live List */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-bold text-[var(--text-main)] font-mono uppercase text-[11px]">
-                Pending OS Alarms ({pendingNotifs.length})
+                Pending Native Alarms ({pendingNotifs.length})
               </span>
               <button
                 onClick={async () => {
                   const p = await NotificationService.getPendingList();
                   setPendingNotifs(p);
+                  const lastDel = await NotificationService.getLastDeliveredAlarm();
+                  setLastDeliveredAlarm(lastDel);
                 }}
                 className="text-[11px] text-neon-cyan hover:underline"
               >
@@ -735,12 +790,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
                         {alarm.scheduledText}
                       </span>
                       <span className="text-[10px] text-[var(--text-dim)] block">
-                        Audio: {alarm.soundName} • ID: {alarm.id}
+                        Sound: {alarm.soundName} • Channel: {alarm.channelId || 'Default'}
                       </span>
                     </div>
-                    <span className="px-1.5 py-0.5 rounded bg-neon-emerald/15 text-neon-emerald text-[9px] font-bold shrink-0">
-                      REGISTERED
-                    </span>
                   </div>
                 ))}
               </div>

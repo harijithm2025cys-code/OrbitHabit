@@ -1,9 +1,14 @@
-import { LocalNotifications, ScheduleOptions, PendingResult } from '@capacitor/local-notifications';
+import { LocalNotifications, PendingResult } from '@capacitor/local-notifications';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Reminder } from '../types/reminder';
-import { habitNotifId } from '../utils/id';
 import { reminderRepository } from '../db/repositories/reminderRepo';
+import { logRepository } from '../db/repositories/logRepo';
+import { habitRepository } from '../db/repositories/habitRepo';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { useHabitStore } from '../../store/useHabitStore';
+import { getTodayString } from '../utils/date';
+import { generateId, habitNotifId } from '../utils/id';
+import { HabitLog } from '../types/log';
 
 export interface DeviceAlarmInfo {
   manufacturer: string;
@@ -24,15 +29,35 @@ export interface NotificationHealth {
 }
 
 export interface PendingAlarmDetails {
-  id: number;
+  id: number | string;
   title: string;
   body?: string;
   scheduledText: string;
   soundName: string;
   channelId?: string;
+  nextTriggerMs?: number;
 }
 
-// Native helper plugin interface
+export interface NativeReminderItem {
+  id: string;
+  habitId: string;
+  title: string;
+  body: string;
+  hour: number;
+  minute: number;
+  weekdays: number[]; // 0=Sun, 1=Mon, ..., 6=Sat
+  sound: string;
+  vibrate: boolean;
+  enabled: boolean;
+  nextTriggerMs?: number;
+}
+
+export interface NativePendingAction {
+  habitId: string;
+  action: string;
+  timestamp: number;
+}
+
 interface NativeAlarmHelperPluginType {
   getDeviceInfo(): Promise<DeviceAlarmInfo>;
   requestIgnoreBatteryOptimization(): Promise<void>;
@@ -49,9 +74,18 @@ interface NativeAlarmHelperPluginType {
   }>;
   openLocationSettings(): Promise<void>;
   openAppSettings(): Promise<void>;
+  scheduleReminders(options: { reminders: NativeReminderItem[] }): Promise<{ success: boolean; count: number }>;
+  cancelReminders(options: { ids: string[] }): Promise<{ success: boolean }>;
+  listReminders(): Promise<{ reminders: NativeReminderItem[] }>;
+  getPendingActions(): Promise<{ actions: NativePendingAction[] }>;
+  clearPendingActions(): Promise<{ success: boolean }>;
+  getLastDeliveredAlarm(): Promise<{ title: string | null; timeMs: number }>;
+  getNotificationLaunchHabitId(): Promise<{ habitId: string | null }>;
 }
 
 const NativeAlarmHelper = registerPlugin<NativeAlarmHelperPluginType>('NativeAlarmHelper');
+
+const DAYS_MAP = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export class NotificationService {
   private static isInitialized = false;
@@ -61,50 +95,20 @@ export class NotificationService {
 
     if (Capacitor.isNativePlatform()) {
       try {
-        // Register Done and Snooze action types
+        // Register action types for any fallback LocalNotification
         await LocalNotifications.registerActionTypes({
           types: [
             {
               id: 'ORBIT_REMINDER_ACTIONS',
               actions: [
-                {
-                  id: 'DONE',
-                  title: '✓ Done'
-                },
-                {
-                  id: 'SNOOZE',
-                  title: '⏱ Snooze 10m'
-                }
+                { id: 'DONE', title: '✓ Done' },
+                { id: 'SNOOZE', title: '⏱ Snooze 10m' }
               ]
             }
           ]
         });
-
-        // Create high-importance notification channels for each bundled ringtone
-        const ringtones = [
-          { id: 'channel_ringtone_1', name: 'Orbit - Celestial Chime', sound: 'ringtone_1.mp3' },
-          { id: 'channel_ringtone_2', name: 'Orbit - Upbeat Pulse', sound: 'ringtone_2.mp3' },
-          { id: 'channel_ringtone_3', name: 'Orbit - Bright Resonance', sound: 'ringtone_3.mp3' },
-          { id: 'channel_ringtone_4', name: 'Orbit - Deep Nebula', sound: 'ringtone_4.mp3' },
-          { id: 'channel_ringtone_5', name: 'Orbit - Cosmic Bell', sound: 'ringtone_5.mp3' },
-          { id: 'channel_default', name: 'Orbit - Default Alerts', sound: undefined }
-        ];
-
-        for (const ch of ringtones) {
-          await LocalNotifications.createChannel({
-            id: ch.id,
-            name: ch.name,
-            description: 'OrbitHabit exact high-priority reminder alarms',
-            importance: 5, // MAX/HIGH importance for lock-screen head-up alerts
-            visibility: 1, // Public visibility on lockscreen
-            sound: ch.sound,
-            vibration: true,
-            lights: true,
-            lightColor: '#00F0FF'
-          });
-        }
       } catch (err) {
-        console.warn('Failed to create native notification channels:', err);
+        console.warn('Failed to register notification action types:', err);
       }
     }
 
@@ -227,7 +231,7 @@ export class NotificationService {
       if (Capacitor.isNativePlatform()) {
         const perm = await LocalNotifications.checkPermissions();
         notificationsAllowed = perm.display === 'granted';
-        
+
         const dev = await this.getDeviceInfo();
         if (dev) {
           deviceInfo = dev;
@@ -235,8 +239,9 @@ export class NotificationService {
           batteryOptimizationIgnored = dev.isIgnoringBatteryOptimizations;
         }
 
-        const pending: PendingResult = await LocalNotifications.getPending();
-        pendingCount = pending.notifications ? pending.notifications.length : 0;
+        // Count pending native alarms
+        const nativeList = await this.getPendingNativeReminders();
+        pendingCount = nativeList.filter((r) => r.enabled).length;
       } else {
         notificationsAllowed = 'Notification' in window && Notification.permission === 'granted';
       }
@@ -256,45 +261,79 @@ export class NotificationService {
     };
   }
 
+  public static async getPendingNativeReminders(): Promise<NativeReminderItem[]> {
+    if (!Capacitor.isNativePlatform()) return [];
+    try {
+      const res = await NativeAlarmHelper.listReminders();
+      return res?.reminders || [];
+    } catch (err) {
+      console.warn('listReminders error:', err);
+      return [];
+    }
+  }
+
+  public static async getLastDeliveredAlarm(): Promise<{ title: string | null; timeMs: number }> {
+    if (!Capacitor.isNativePlatform()) return { title: null, timeMs: 0 };
+    try {
+      return await NativeAlarmHelper.getLastDeliveredAlarm();
+    } catch {
+      return { title: null, timeMs: 0 };
+    }
+  }
+
+  public static async getNotificationLaunchHabitId(): Promise<string | null> {
+    if (!Capacitor.isNativePlatform()) return null;
+    try {
+      const res = await NativeAlarmHelper.getNotificationLaunchHabitId();
+      return res?.habitId || null;
+    } catch {
+      return null;
+    }
+  }
+
   public static async getPendingList(): Promise<PendingAlarmDetails[]> {
     try {
       if (Capacitor.isNativePlatform()) {
-        const pending = await LocalNotifications.getPending();
+        const nativeList = await this.getPendingNativeReminders();
+        if (nativeList && nativeList.length > 0) {
+          return nativeList.map((item) => {
+            const h = String(item.hour).padStart(2, '0');
+            const m = String(item.minute).padStart(2, '0');
+            let scheduledText = `Repeats Daily at ${h}:${m}`;
+            if (item.weekdays && item.weekdays.length > 0 && item.weekdays.length < 7) {
+              const daysStr = item.weekdays.map((d) => DAYS_MAP[d % 7]).join(', ');
+              scheduledText = `${daysStr} at ${h}:${m}`;
+            }
+
+            if (item.nextTriggerMs && item.nextTriggerMs > 0) {
+              const d = new Date(item.nextTriggerMs);
+              scheduledText += ` (Next: ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+            }
+
+            return {
+              id: item.id,
+              title: item.title,
+              body: item.body,
+              scheduledText,
+              soundName: item.sound || 'ringtone_1',
+              channelId: `rem_${item.sound}_${item.vibrate ? 'vib' : 'novib'}`,
+              nextTriggerMs: item.nextTriggerMs
+            };
+          });
+        }
+
+        // Fallback to LocalNotifications pending if empty
+        const pending: PendingResult = await LocalNotifications.getPending();
         if (!pending || !pending.notifications) return [];
 
-        const DAYS_MAP = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-        return pending.notifications.map((n: any) => {
-          let scheduledText = 'Scheduled Exact Alarm';
-          const sched: any = n.schedule;
-          if (sched) {
-            if (sched.at) {
-              const d = new Date(sched.at);
-              scheduledText = `One-time / Next at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${d.toLocaleDateString()})`;
-            } else if (sched.on) {
-              const h = String(sched.on.hour ?? 0).padStart(2, '0');
-              const m = String(sched.on.minute ?? 0).padStart(2, '0');
-              if (sched.on.weekday !== undefined) {
-                // weekday: 1 = Sun, 2 = Mon ... 7 = Sat
-                const dayIdx = (sched.on.weekday - 1) % 7;
-                scheduledText = `Repeats Every ${DAYS_MAP[dayIdx]} at ${h}:${m}`;
-              } else {
-                scheduledText = `Repeats Daily at ${h}:${m}`;
-              }
-            } else if (sched.every === 'day') {
-              scheduledText = `Repeats Daily`;
-            }
-          }
-
-          return {
-            id: n.id,
-            title: n.title || 'Habit Reminder',
-            body: n.body || '',
-            scheduledText,
-            soundName: n.sound || 'Default',
-            channelId: n.channelId
-          };
-        });
+        return pending.notifications.map((n: any) => ({
+          id: n.id,
+          title: n.title || 'Habit Reminder',
+          body: n.body || '',
+          scheduledText: 'Scheduled Alarm',
+          soundName: n.sound || 'Default',
+          channelId: n.channelId
+        }));
       }
       return [];
     } catch {
@@ -312,124 +351,170 @@ export class NotificationService {
     }
   }
 
-  public static async scheduleReminder(reminder: Reminder): Promise<void> {
-    if (!reminder.enabled) return;
+  /**
+   * Schedule a reminder natively using AlarmManager.setAlarmClock() with fallback.
+   * Returns true on success, throws or returns false on failure.
+   */
+  public static async scheduleReminder(reminder: Reminder): Promise<boolean> {
+    if (!reminder.enabled) {
+      await this.cancelReminder(reminder.id);
+      return true;
+    }
 
     try {
-      await this.initializeChannels();
-
       const [hours, minutes] = reminder.time.split(':').map(Number);
-      const soundName = reminder.sound?.replace(/\.mp3$|\.wav$/, '') || 'ringtone_1';
-      const channelId =
-        soundName === 'silent'
-          ? undefined
-          : `channel_${soundName}`;
+      const soundClean = (reminder.sound || 'ringtone_1')
+        .replace(/\.mp3$|\.wav$/, '')
+        .trim();
 
-      // Always cancel any existing slots for this reminder before rescheduling
-      await this.cancelReminder(reminder.id);
+      const daysToSchedule: number[] =
+        reminder.days && reminder.days.length > 0
+          ? reminder.days
+          : [0, 1, 2, 3, 4, 5, 6];
 
       if (Capacitor.isNativePlatform()) {
-        // Determine which days to schedule.
-        // ALWAYS use per-weekday `on:` alarms — the `at: + every:'day'` approach
-        // is unreliable on Android (drifts, misses, dies on reboot).
-        const daysToSchedule: number[] =
-          reminder.days && reminder.days.length > 0
-            ? reminder.days
-            : [0, 1, 2, 3, 4, 5, 6]; // fallback to all days
+        // 1. Verify exact alarm permission on Android 12+ (SDK >= 31)
+        const dev = await this.getDeviceInfo();
+        if (dev && dev.sdkVersion >= 31 && !dev.canScheduleExactAlarms) {
+          throw new Error('SCHEDULE_EXACT_ALARM_PERMISSION_REQUIRED');
+        }
 
-        const notificationsToSchedule: any[] = daysToSchedule.map((dayOfWeek) => ({
-          // Stable, deterministic ID: same reminder + same weekday always = same notif ID
-          id: habitNotifId(reminder.id, dayOfWeek),
+        // 2. Clear any lingering LocalNotifications for this reminder
+        for (let d = 0; d <= 6; d++) {
+          try {
+            await LocalNotifications.cancel({
+              notifications: [{ id: habitNotifId(reminder.id, d) }]
+            });
+          } catch {}
+        }
+
+        // 3. Schedule via native AlarmScheduler
+        const nativeItem: NativeReminderItem = {
+          id: reminder.id,
+          habitId: reminder.habit_id || '',
           title: reminder.title,
           body: reminder.body || `Time for ${reminder.title}!`,
-          channelId,
-          sound: reminder.sound === 'silent' ? undefined : `${soundName}.mp3`,
-          schedule: {
-            on: {
-              // Capacitor weekday: 1 = Sunday, 2 = Monday, ..., 7 = Saturday
-              // Our days[]: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-              weekday: dayOfWeek + 1,
-              hour: hours,
-              minute: minutes
-            },
-            repeats: true,
-            allowWhileIdle: true
-          },
-          extra: {
-            habit_id: reminder.habit_id,
-            reminder_id: reminder.id
-          },
-          actionTypeId: 'ORBIT_REMINDER_ACTIONS'
-        }));
+          hour: hours,
+          minute: minutes,
+          weekdays: daysToSchedule,
+          sound: soundClean,
+          vibrate: reminder.vibrate !== 0,
+          enabled: true
+        };
 
-        console.log(
-          `[NotifService] Scheduling ${notificationsToSchedule.length} alarms for reminder "${reminder.title}" ` +
-            `at ${reminder.time} on days [${daysToSchedule.join(',')}]`,
-          notificationsToSchedule.map((n) => ({ id: n.id, weekday: n.schedule.on.weekday }))
-        );
+        const res = await NativeAlarmHelper.scheduleReminders({
+          reminders: [nativeItem]
+        });
 
-        const options: ScheduleOptions = { notifications: notificationsToSchedule };
-        await LocalNotifications.schedule(options);
+        console.log(`[NotificationService] Native alarm armed for "${reminder.title}" at ${reminder.time}`);
+        return !!res?.success;
       }
-    } catch (err) {
-      console.error('[NotifService] Failed to schedule notification:', err);
+
+      // Non-native / Web environment
+      console.log(`[NotificationService] Web reminder registered for "${reminder.title}" at ${reminder.time}`);
+      return true;
+    } catch (err: any) {
+      console.error('[NotificationService] Failed to schedule reminder:', err);
+      throw err;
     }
   }
 
-  public static async cancelReminder(reminderId: string): Promise<void> {
+  public static async cancelReminder(reminderId: string): Promise<boolean> {
     try {
       if (Capacitor.isNativePlatform()) {
-        // Cancel all 7 possible per-day slots derived from stable IDs
+        // Cancel native alarm
+        await NativeAlarmHelper.cancelReminders({ ids: [reminderId] });
+
+        // Also clean up any possible LocalNotification slots
         const idsToCancel: number[] = [];
         for (let day = 0; day <= 6; day++) {
           idsToCancel.push(habitNotifId(reminderId, day));
         }
-        console.log(`[NotifService] Cancelling reminder slots:`, idsToCancel);
         await LocalNotifications.cancel({
           notifications: idsToCancel.map((id) => ({ id }))
-        });
+        }).catch(() => {});
       }
+      return true;
     } catch (err) {
-      console.warn('[NotifService] Failed to cancel notification:', err);
+      console.warn('[NotificationService] Failed to cancel reminder:', err);
+      return false;
     }
   }
 
+  /**
+   * Process pending actions queued by native notification receiver (e.g. Done clicked)
+   */
+  public static async processPendingActions(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
 
+    try {
+      const res = await NativeAlarmHelper.getPendingActions();
+      const actions = res?.actions || [];
+      if (actions.length === 0) return;
+
+      console.log(`[NotificationService] Processing ${actions.length} pending notification actions:`, actions);
+
+      const todayStr = getTodayString();
+
+      for (const act of actions) {
+        if (act.action === 'DONE' && act.habitId) {
+          try {
+            const habit =
+              (await habitRepository.getById(act.habitId)) ||
+              useHabitStore.getState().habits.find((h) => h.id === act.habitId);
+
+            if (habit) {
+              const existing = await logRepository.getLog(act.habitId, todayStr);
+              const targetVal = habit.target_value || 1;
+              const log: HabitLog = {
+                id: existing?.id || generateId('log'),
+                habit_id: act.habitId,
+                date: todayStr,
+                progress: targetVal,
+                completed: 1,
+                completed_at: Date.now(),
+                source: 'manual'
+              };
+              await logRepository.upsertLog(log);
+              console.log(`[NotificationService] Applied DONE action for habit: ${habit.name} (${habit.id})`);
+            }
+          } catch (err) {
+            console.error(`Failed to apply pending action for habit ${act.habitId}:`, err);
+          }
+        }
+      }
+
+      await NativeAlarmHelper.clearPendingActions();
+      await useHabitStore.getState().loadHabits();
+    } catch (err) {
+      console.warn('[NotificationService] Error processing pending actions:', err);
+    }
+  }
 
   public static async sendTestNotification(
     delaySeconds = 10,
     title = 'OrbitHabit Exact Alarm Test',
-    sound = 'ringtone_1.mp3'
+    sound = 'ringtone_1'
   ): Promise<void> {
     try {
-      await this.initializeChannels();
-      const soundName = sound.replace(/\.mp3$|\.wav$/, '');
-      const fireAt = new Date(Date.now() + delaySeconds * 1000);
+      const soundClean = sound.replace(/\.mp3$|\.wav$/, '');
+      const testId = generateId('test_alarm');
 
-      if (Capacitor.isNativePlatform()) {
-        await LocalNotifications.schedule({
-          notifications: [
-            {
-              id: Math.floor(Math.random() * 900000) + 100000,
-              title,
-              body: `High-priority exact alarm fired! Sound: ${soundName}.`,
-              channelId: `channel_${soundName}`,
-              sound: `${soundName}.mp3`,
-              schedule: {
-                at: fireAt,
-                allowWhileIdle: true
-              },
-              actionTypeId: 'ORBIT_REMINDER_ACTIONS'
-            }
-          ]
-        });
-      } else {
-        setTimeout(() => {
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, { body: `High-priority alarm fired! Sound: ${soundName}.` });
-          }
-        }, delaySeconds * 1000);
-      }
+      const now = new Date(Date.now() + delaySeconds * 1000);
+      const testReminder: Reminder = {
+        id: testId,
+        habit_id: 'test_habit',
+        title,
+        body: `Exact Alarm fired on time! Sound: ${soundClean}.`,
+        time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+        days: [0, 1, 2, 3, 4, 5, 6],
+        sound: soundClean,
+        vibrate: 1,
+        enabled: 1,
+        notif_id: 9999
+      };
+
+      await this.scheduleReminder(testReminder);
     } catch (err) {
       console.warn('Test notification failed:', err);
     }
@@ -438,6 +523,10 @@ export class NotificationService {
   public static async cancelAllReminders(): Promise<void> {
     try {
       if (Capacitor.isNativePlatform()) {
+        const nativeList = await this.getPendingNativeReminders();
+        if (nativeList.length > 0) {
+          await NativeAlarmHelper.cancelReminders({ ids: nativeList.map((r) => r.id) });
+        }
         const pending = await LocalNotifications.getPending();
         if (pending.notifications && pending.notifications.length > 0) {
           await LocalNotifications.cancel({
@@ -450,18 +539,36 @@ export class NotificationService {
     }
   }
 
+  /**
+   * Reschedules all alarms from DB to native engine as a safety sync.
+   */
   public static async rescheduleAllReminders(): Promise<void> {
     try {
       const all = await reminderRepository.getAll();
-      for (const r of all) {
-        if (r.enabled) {
-          await this.scheduleReminder(r);
-        }
+      const enabledList = all.filter((r) => r.enabled);
+
+      if (Capacitor.isNativePlatform() && enabledList.length > 0) {
+        const nativeItems: NativeReminderItem[] = enabledList.map((r) => {
+          const [hours, minutes] = r.time.split(':').map(Number);
+          return {
+            id: r.id,
+            habitId: r.habit_id || '',
+            title: r.title,
+            body: r.body || `Time for ${r.title}!`,
+            hour: hours,
+            minute: minutes,
+            weekdays: r.days && r.days.length > 0 ? r.days : [0, 1, 2, 3, 4, 5, 6],
+            sound: (r.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
+            vibrate: r.vibrate !== 0,
+            enabled: true
+          };
+        });
+
+        await NativeAlarmHelper.scheduleReminders({ reminders: nativeItems });
+        console.log(`[NotificationService] Safety sync: re-armed ${nativeItems.length} native alarms.`);
       }
     } catch (err) {
-      console.warn('Failed to reschedule reminders:', err);
+      console.warn('Failed to reschedule reminders safety sync:', err);
     }
   }
 }
-
-

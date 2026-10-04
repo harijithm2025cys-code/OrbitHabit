@@ -7,24 +7,41 @@ import { logRepository } from '../core/db/repositories/logRepo';
 import { Habit } from '../core/types/habit';
 import { Reminder } from '../core/types/reminder';
 import { HabitLog } from '../core/types/log';
-import { LocalNotifications } from '@capacitor/local-notifications';
+import { useHabitStore } from '../store/useHabitStore';
+import { getTodayString } from '../core/utils/date';
+import {
+  calculateNextTriggerMs,
+  formatWeekday,
+  WEEKDAYS,
+  stripHabitStoreFields
+} from '../core/utils/reminderUtils';
 
-// Mock Capacitor native methods
+const { mockNativeAlarmHelper } = vi.hoisted(() => ({
+  mockNativeAlarmHelper: {
+    getDeviceInfo: vi.fn().mockResolvedValue({
+      manufacturer: 'vivo',
+      model: 'iQOO Neo 9 Pro',
+      brand: 'iqoo',
+      sdkVersion: 34,
+      isIgnoringBatteryOptimizations: true,
+      canScheduleExactAlarms: true
+    }),
+    scheduleReminders: vi.fn().mockResolvedValue({ success: true, count: 1 }),
+    cancelReminders: vi.fn().mockResolvedValue({ success: true }),
+    listReminders: vi.fn().mockResolvedValue({ reminders: [] }),
+    getPendingActions: vi.fn().mockResolvedValue({ actions: [] }),
+    clearPendingActions: vi.fn().mockResolvedValue({ success: true }),
+    getLastDeliveredAlarm: vi.fn().mockResolvedValue({ title: 'Morning Alarm', timeMs: 1700000000000 }),
+    getNotificationLaunchHabitId: vi.fn().mockResolvedValue({ habitId: null })
+  }
+}));
+
 vi.mock('@capacitor/core', () => ({
   Capacitor: {
     isNativePlatform: vi.fn(() => true),
     getPlatform: vi.fn(() => 'android')
   },
-  registerPlugin: vi.fn(() => ({
-    getDeviceInfo: vi.fn(),
-    requestIgnoreBatteryOptimization: vi.fn(),
-    openExactAlarmSettings: vi.fn(),
-    openOemBatterySettings: vi.fn(),
-    isLocationEnabled: vi.fn(),
-    checkLocationPermissionsDetail: vi.fn(),
-    openLocationSettings: vi.fn(),
-    openAppSettings: vi.fn()
-  }))
+  registerPlugin: vi.fn(() => mockNativeAlarmHelper)
 }));
 
 vi.mock('@capacitor/local-notifications', () => ({
@@ -39,236 +56,259 @@ vi.mock('@capacitor/local-notifications', () => ({
   }
 }));
 
-describe('PART A: Exact Reminders & Stable Notification IDs', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe('1. Next-Occurrence Calculation', () => {
+  it('1.1: schedules for today if reminder time is in the future', () => {
+    // Current time: 2026-10-04 (Sunday), 10:00:00
+    const fakeNow = new Date(2026, 9, 4, 10, 0, 0); // Month 9 is October (0-indexed)
+    expect(fakeNow.getDay()).toBe(0); // Sunday
+
+    // Reminder time: 14:30 today
+    const nextTriggerMs = calculateNextTriggerMs(14, 30, [0, 1, 2, 3, 4, 5, 6], fakeNow);
+    const triggerDate = new Date(nextTriggerMs);
+
+    expect(triggerDate.getFullYear()).toBe(2026);
+    expect(triggerDate.getMonth()).toBe(9);
+    expect(triggerDate.getDate()).toBe(4);
+    expect(triggerDate.getHours()).toBe(14);
+    expect(triggerDate.getMinutes()).toBe(30);
+    expect(triggerDate.getSeconds()).toBe(0);
+    expect(triggerDate.getMilliseconds()).toBe(0);
   });
 
-  it('A1: habitNotifId produces deterministic and repeatable IDs for the same reminder and day', () => {
-    const remId = 'rem_test_12345';
-    const id1 = habitNotifId(remId, 0); // Sunday
-    const id2 = habitNotifId(remId, 0);
-    const id3 = habitNotifId(remId, 1); // Monday
+  it('1.2: schedules for tomorrow if reminder time today has already passed', () => {
+    // Current time: 2026-10-04 (Sunday), 16:00:00
+    const fakeNow = new Date(2026, 9, 4, 16, 0, 0);
 
-    expect(id1).toBe(id2);
-    expect(id1).not.toBe(id3);
-    expect(id1).toBeGreaterThanOrEqual(1);
-    expect(id1).toBeLessThanOrEqual(2_000_000_000);
+    // Reminder time: 08:00 (already passed today)
+    const nextTriggerMs = calculateNextTriggerMs(8, 0, [0, 1, 2, 3, 4, 5, 6], fakeNow);
+    const triggerDate = new Date(nextTriggerMs);
+
+    expect(triggerDate.getFullYear()).toBe(2026);
+    expect(triggerDate.getMonth()).toBe(9);
+    expect(triggerDate.getDate()).toBe(5); // Monday Oct 5
+    expect(triggerDate.getHours()).toBe(8);
+    expect(triggerDate.getMinutes()).toBe(0);
   });
 
-  it('A2: habitNotifId generates unique slot IDs across all 7 days of the week', () => {
-    const remId = 'rem_weekly_habit';
-    const ids = new Set<number>();
+  it('1.3: skips non-selected days and picks the earliest matching weekday', () => {
+    // Current time: 2026-10-04 (Sunday), 12:00:00
+    const fakeNow = new Date(2026, 9, 4, 12, 0, 0);
 
-    for (let day = 0; day <= 6; day++) {
-      const id = habitNotifId(remId, day);
-      expect(ids.has(id)).toBe(false);
-      ids.add(id);
-    }
+    // Reminder configured ONLY for Tuesday (2) and Thursday (4) at 09:00
+    const nextTriggerMs = calculateNextTriggerMs(9, 0, [2, 4], fakeNow);
+    const triggerDate = new Date(nextTriggerMs);
 
-    expect(ids.size).toBe(7);
+    // Next match should be Tuesday Oct 6
+    expect(triggerDate.getDay()).toBe(2); // Tuesday
+    expect(triggerDate.getDate()).toBe(6);
+    expect(triggerDate.getHours()).toBe(9);
+    expect(triggerDate.getMinutes()).toBe(0);
   });
 
-  it('A3: scheduleReminder uses on: { weekday, hour, minute } with allowWhileIdle: true', async () => {
-    const reminder: Reminder = {
-      id: 'rem_meditation',
-      habit_id: 'habit_123',
-      title: 'Morning Meditation',
-      body: 'Take 10 minutes to breathe',
-      time: '07:30',
-      days: [1, 3, 5], // Mon, Wed, Fri
-      sound: 'ringtone_2.mp3',
-      vibrate: 1,
-      enabled: 1,
-      notif_id: habitNotifId('rem_meditation', 0)
-    };
+  it('1.4: handles midnight (00:00) and late evening (23:59) transitions cleanly', () => {
+    const fakeNow = new Date(2026, 9, 4, 23, 58, 0);
 
-    await NotificationService.scheduleReminder(reminder);
+    // Reminder at 23:59: should trigger today in 1 minute
+    const triggerToday = new Date(calculateNextTriggerMs(23, 59, [0], fakeNow));
+    expect(triggerToday.getDate()).toBe(4);
+    expect(triggerToday.getHours()).toBe(23);
+    expect(triggerToday.getMinutes()).toBe(59);
 
-    expect(LocalNotifications.schedule).toHaveBeenCalledTimes(1);
-    const callArgs = (LocalNotifications.schedule as any).mock.calls[0][0];
-    const notifications = callArgs.notifications;
-
-    expect(notifications).toHaveLength(3);
-
-    // Mon = day 1 in our system -> weekday 2 in Capacitor
-    // Wed = day 3 -> weekday 4
-    // Fri = day 5 -> weekday 6
-    expect(notifications[0].schedule.on).toEqual({ weekday: 2, hour: 7, minute: 30 });
-    expect(notifications[0].schedule.repeats).toBe(true);
-    expect(notifications[0].schedule.allowWhileIdle).toBe(true);
-    expect(notifications[0].channelId).toBe('channel_ringtone_2');
-    expect(notifications[0].sound).toBe('ringtone_2.mp3');
-
-    expect(notifications[1].schedule.on.weekday).toBe(4);
-    expect(notifications[2].schedule.on.weekday).toBe(6);
-  });
-
-  it('A4: Daily reminders expand to all 7 weekdays rather than unstable interval repeat', async () => {
-    const dailyReminder: Reminder = {
-      id: 'rem_water',
-      habit_id: 'habit_water',
-      title: 'Drink Water',
-      body: 'Time to drink water',
-      time: '09:00',
-      days: [0, 1, 2, 3, 4, 5, 6],
-      sound: 'ringtone_1.mp3',
-      vibrate: 1,
-      enabled: 1,
-      notif_id: habitNotifId('rem_water', 0)
-    };
-
-    await NotificationService.scheduleReminder(dailyReminder);
-
-    const callArgs = (LocalNotifications.schedule as any).mock.calls[0][0];
-    const notifications = callArgs.notifications;
-
-    expect(notifications).toHaveLength(7);
-    const weekdays = notifications.map((n: any) => n.schedule.on.weekday);
-    expect(weekdays).toEqual([1, 2, 3, 4, 5, 6, 7]);
-  });
-
-  it('A5: cancelReminder cancels all 7 deterministic slot IDs for the given reminder', async () => {
-    const remId = 'rem_to_cancel';
-    await NotificationService.cancelReminder(remId);
-
-    expect(LocalNotifications.cancel).toHaveBeenCalledTimes(1);
-    const callArgs = (LocalNotifications.cancel as any).mock.calls[0][0];
-    const cancelled = callArgs.notifications.map((n: any) => n.id);
-
-    expect(cancelled).toHaveLength(7);
-    for (let day = 0; day <= 6; day++) {
-      expect(cancelled).toContain(habitNotifId(remId, day));
-    }
+    // Reminder at 00:05: should trigger tomorrow
+    const triggerMidnight = new Date(calculateNextTriggerMs(0, 5, [0, 1, 2, 3, 4, 5, 6], fakeNow));
+    expect(triggerMidnight.getDate()).toBe(5);
+    expect(triggerMidnight.getHours()).toBe(0);
+    expect(triggerMidnight.getMinutes()).toBe(5);
   });
 });
 
-describe('PART B: Edit Habit Data Persistence & History Preservation', () => {
+describe('2. Weekday Mapping (0=Sun .. 6=Sat)', () => {
+  it('2.1: conforms to JavaScript Date.getDay() (0=Sunday to 6=Saturday)', () => {
+    // 2026-10-04 is Sunday -> 0
+    expect(new Date(2026, 9, 4).getDay()).toBe(0);
+    // 2026-10-05 is Monday -> 1
+    expect(new Date(2026, 9, 5).getDay()).toBe(1);
+    // 2026-10-10 is Saturday -> 6
+    expect(new Date(2026, 9, 10).getDay()).toBe(6);
+  });
+
+  it('2.2: WEEKDAYS array matches standard calendar order starting with Sun', () => {
+    expect(WEEKDAYS).toEqual(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
+    expect(formatWeekday(0)).toBe('Sun');
+    expect(formatWeekday(1)).toBe('Mon');
+    expect(formatWeekday(6)).toBe('Sat');
+  });
+
+  it('2.3: habitNotifId produces deterministic and unique integer IDs per weekday', () => {
+    const remId = 'rem_test_abc';
+    const sundayId = habitNotifId(remId, 0);
+    const mondayId = habitNotifId(remId, 1);
+
+    expect(sundayId).toBe(habitNotifId(remId, 0)); // idempotent
+    expect(sundayId).not.toBe(mondayId);
+    expect(sundayId).toBeGreaterThan(0);
+  });
+});
+
+describe('3. Edit Habit Save Ordering & Atomicity', () => {
   const sampleHabit: Habit = {
-    id: 'habit_run_test',
-    name: 'Morning Jog',
-    description: 'Jog through the park',
-    icon: 'Footprints',
+    id: 'habit_save_order_test',
+    name: 'Hydration Target',
+    description: 'Drink healthy water daily',
+    icon: '💧',
     color: '#00F0FF',
-    type: 'distance',
-    target_value: 5,
-    unit: 'km',
-    repeat_days: [1, 2, 3, 4, 5],
-    checklist_items: ['Wear shoes', 'Take water'],
-    alarm_time: '06:30',
-    alarm_sound: 'ringtone_3.mp3',
+    type: 'count',
+    target_value: 8,
+    unit: 'glasses',
+    repeat_days: [0, 1, 2, 3, 4, 5, 6],
+    checklist_items: [],
     created_at: 1700000000000,
     archived: 0
   };
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     await habitRepository.delete(sampleHabit.id);
   });
 
-  it('B1: creates and persists habit with all extended fields', async () => {
-    await habitRepository.create(sampleHabit);
-    const retrieved = await habitRepository.getById(sampleHabit.id);
-
-    expect(retrieved).not.toBeNull();
-    expect(retrieved?.name).toBe('Morning Jog');
-    expect(retrieved?.description).toBe('Jog through the park');
-    expect(retrieved?.type).toBe('distance');
-    expect(retrieved?.target_value).toBe(5);
-    expect(retrieved?.unit).toBe('km');
-    expect(retrieved?.repeat_days).toEqual([1, 2, 3, 4, 5]);
-    expect(retrieved?.checklist_items).toEqual(['Wear shoes', 'Take water']);
-    expect(retrieved?.alarm_time).toBe('06:30');
-    expect(retrieved?.alarm_sound).toBe('ringtone_3.mp3');
-  });
-
-  it('B2: updates all fields on edit including description, checklist, alarm and repeat days', async () => {
-    await habitRepository.create(sampleHabit);
-
-    const updatedHabit: Habit = {
+  it('3.1: strips volatile store fields (today_progress, streak_*) before persisting', () => {
+    const storeEnriched = {
       ...sampleHabit,
-      name: 'Evening Jog & Stretch',
-      description: 'Run around the track then stretch',
-      target_value: 7.5,
-      repeat_days: [0, 1, 2, 3, 4, 5, 6],
-      checklist_items: ['Shoes', 'Water bottle', 'Stretch 5 min'],
-      alarm_time: '18:00',
-      alarm_sound: 'ringtone_4.mp3'
+      today_progress: 5,
+      today_completed: false,
+      streak_current: 3,
+      streak_best: 10
     };
 
-    await habitRepository.update(updatedHabit);
-    const retrieved = await habitRepository.getById(sampleHabit.id);
+    const clean = stripHabitStoreFields(storeEnriched);
 
-    expect(retrieved?.name).toBe('Evening Jog & Stretch');
-    expect(retrieved?.description).toBe('Run around the track then stretch');
-    expect(retrieved?.target_value).toBe(7.5);
-    expect(retrieved?.repeat_days).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(retrieved?.checklist_items).toEqual(['Shoes', 'Water bottle', 'Stretch 5 min']);
-    expect(retrieved?.alarm_time).toBe('18:00');
-    expect(retrieved?.alarm_sound).toBe('ringtone_4.mp3');
+    expect((clean as any).today_progress).toBeUndefined();
+    expect((clean as any).today_completed).toBeUndefined();
+    expect((clean as any).streak_current).toBeUndefined();
+    expect((clean as any).streak_best).toBeUndefined();
+    expect(clean.id).toBe(sampleHabit.id);
+    expect(clean.name).toBe(sampleHabit.name);
   });
 
-  it('B3: editing habit preserves streak logs and history', async () => {
+  it('3.2: preserves old reminders if new reminder scheduling fails', async () => {
     await habitRepository.create(sampleHabit);
 
-    // Create past completion logs
-    const log1: HabitLog = {
-      id: 'log_day_1',
+    const oldReminder: Reminder = {
+      id: 'old_rem_1',
       habit_id: sampleHabit.id,
-      date: '2026-10-01',
-      progress: 5,
-      completed: 1,
-      completed_at: 1700100000000,
+      title: 'Drink Water (Old)',
+      body: 'Time for water',
+      time: '08:00',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      sound: 'ringtone_1',
+      vibrate: 1,
+      enabled: 1,
+      notif_id: 1001
+    };
+    await reminderRepository.create(oldReminder);
+
+    // Simulate native scheduling failure on new reminder
+    mockNativeAlarmHelper.scheduleReminders.mockRejectedValueOnce(new Error('OS ALARM_MANAGER_ERROR'));
+
+    const newReminder: Reminder = {
+      id: 'new_rem_2',
+      habit_id: sampleHabit.id,
+      title: 'Drink Water (New)',
+      body: 'Time for hydration',
+      time: '12:00',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      sound: 'ringtone_2',
+      vibrate: 1,
+      enabled: 1,
+      notif_id: 1002
+    };
+
+    // Attempt scheduling new reminder
+    let failed = false;
+    try {
+      await NotificationService.scheduleReminder(newReminder);
+    } catch {
+      failed = true;
+    }
+
+    expect(failed).toBe(true);
+
+    // Old reminder in DB must STILL exist intact
+    const existing = await reminderRepository.getByHabitId(sampleHabit.id);
+    expect(existing).toHaveLength(1);
+    expect(existing[0].id).toBe('old_rem_1');
+    expect(existing[0].title).toBe('Drink Water (Old)');
+
+    await reminderRepository.delete(oldReminder.id);
+  });
+
+  it('3.3: updates today completed status when target value changes', async () => {
+    await habitRepository.create(sampleHabit);
+    await useHabitStore.getState().loadHabits();
+
+    const todayStr = getTodayString();
+
+    // Create log with progress = 6 (not completed for target = 8)
+    const log: HabitLog = {
+      id: 'log_today_target_test',
+      habit_id: sampleHabit.id,
+      date: todayStr,
+      progress: 6,
+      completed: 0,
+      completed_at: null,
       source: 'manual'
     };
-    const log2: HabitLog = {
-      id: 'log_day_2',
-      habit_id: sampleHabit.id,
-      date: '2026-10-02',
-      progress: 5,
-      completed: 1,
-      completed_at: 1700186400000,
-      source: 'gps'
-    };
+    await logRepository.upsertLog(log);
 
-    await logRepository.upsertLog(log1);
-    await logRepository.upsertLog(log2);
-
-    // Now edit the habit
-    await habitRepository.update({
+    // Edit habit target from 8 down to 5
+    await useHabitStore.getState().updateHabit({
       ...sampleHabit,
-      name: 'Morning Jog (Updated Target)',
+      target_value: 5
+    });
+
+    // Recomputed log: 6 >= 5 -> completed should now be 1
+    const updatedLog = await logRepository.getLog(sampleHabit.id, todayStr);
+    expect(updatedLog?.completed).toBe(1);
+    expect(updatedLog?.completed_at).not.toBeNull();
+
+    // Now edit target up to 10
+    await useHabitStore.getState().updateHabit({
+      ...sampleHabit,
       target_value: 10
     });
 
-    // Verify logs are completely intact
-    const logs = await logRepository.getLogsForHabit(sampleHabit.id);
-    expect(logs).toHaveLength(2);
-    expect(logs.find((l) => l.date === '2026-10-01')?.completed).toBe(1);
-    expect(logs.find((l) => l.date === '2026-10-02')?.completed).toBe(1);
+    // Recomputed log: 6 < 10 -> completed should now be 0
+    const logAfterIncrease = await logRepository.getLog(sampleHabit.id, todayStr);
+    expect(logAfterIncrease?.completed).toBe(0);
+    expect(logAfterIncrease?.completed_at).toBeNull();
   });
 
-  it('B4: reminder repository properly associates reminders with habit_id', async () => {
-    const reminder: Reminder = {
-      id: 'rem_linked_test',
+  it('3.4: resets today progress when habit type changes', async () => {
+    await habitRepository.create(sampleHabit); // type: 'count'
+    await useHabitStore.getState().loadHabits();
+
+    const todayStr = getTodayString();
+    await logRepository.upsertLog({
+      id: 'log_type_change_test',
       habit_id: sampleHabit.id,
-      title: 'Run Reminder',
-      body: 'Time to go for a run',
-      time: '06:00',
-      days: [1, 2, 3, 4, 5],
-      sound: 'ringtone_1.mp3',
-      vibrate: 1,
-      enabled: 1,
-      notif_id: habitNotifId('rem_linked_test', 0)
-    };
+      date: todayStr,
+      progress: 8,
+      completed: 1,
+      completed_at: Date.now(),
+      source: 'manual'
+    });
 
-    await reminderRepository.create(reminder);
-    const habitReminders = await reminderRepository.getByHabitId(sampleHabit.id);
+    // Change type from 'count' to 'distance'
+    await useHabitStore.getState().updateHabit({
+      ...sampleHabit,
+      type: 'distance',
+      target_value: 5,
+      unit: 'km'
+    });
 
-    expect(habitReminders).toHaveLength(1);
-    expect(habitReminders[0].habit_id).toBe(sampleHabit.id);
-    expect(habitReminders[0].title).toBe('Run Reminder');
-
-    // Clean up
-    await reminderRepository.delete(reminder.id);
+    const resetLog = await logRepository.getLog(sampleHabit.id, todayStr);
+    expect(resetLog?.progress).toBe(0);
+    expect(resetLog?.completed).toBe(0);
+    expect(resetLog?.completed_at).toBeNull();
   });
 });

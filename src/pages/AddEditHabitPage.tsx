@@ -21,9 +21,17 @@ import { Toggle } from '../components/ui/Toggle';
 import { HabitType, Habit } from '../core/types/habit';
 import { SoundService } from '../core/services/soundService';
 import { NotificationService } from '../core/services/notificationService';
-import { LocalNotifications } from '@capacitor/local-notifications';
+import { Reminder } from '../core/types/reminder';
 import { reminderRepository } from '../core/db/repositories/reminderRepo';
 import { generateId, habitNotifId } from '../core/utils/id';
+
+export interface ReminderFormItem {
+  id?: string;
+  time: string;
+  sound: string;
+  vibrate: boolean;
+  message: string;
+}
 
 interface AddEditHabitPageProps {
   onBack: () => void;
@@ -82,14 +90,16 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
 
   // Wake up specific
   const [alarmTime, setAlarmTime] = useState(initialData?.alarm_time || '07:00');
-  const [alarmSound, setAlarmSound] = useState(initialData?.alarm_sound || 'ringtone_1.mp3');
+  const [alarmSound, setAlarmSound] = useState(initialData?.alarm_sound || 'ringtone_1');
 
-  // Per-Habit Reminder States (Fix C)
+  // Per-Habit Reminder States: list of objects with per-reminder sound, vibrate, message
   const [remindMe, setRemindMe] = useState(false);
-  const [reminderTimes, setReminderTimes] = useState<string[]>(['08:00']);
-  const [reminderSound, setReminderSound] = useState('ringtone_1.mp3');
-  const [reminderVibrate, setReminderVibrate] = useState(true);
-  const [reminderMessage, setReminderMessage] = useState('');
+  const [reminderItems, setReminderItems] = useState<ReminderFormItem[]>([
+    { time: '08:00', sound: 'ringtone_1', vibrate: true, message: '' }
+  ]);
+  const [isLoadingReminders, setIsLoadingReminders] = useState(!!initialData?.id);
+  const [exactAlarmBlocked, setExactAlarmBlocked] = useState(false);
+  const [typeChangeWarning, setTypeChangeWarning] = useState('');
   const [playingSound, setPlayingSound] = useState<string | null>(null);
 
   // Form validation & saving states
@@ -97,7 +107,7 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
   const [nameError, setNameError] = useState('');
   const [targetError, setTargetError] = useState('');
 
-  // Load existing reminder and sync fields on edit
+  // Load existing reminder and sync fields on edit BEFORE rendering form fully
   useEffect(() => {
     if (initialData) {
       setName(initialData.name || '');
@@ -117,23 +127,36 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
         setChecklistItems(initialData.checklist_items);
       }
       if (initialData.alarm_time) setAlarmTime(initialData.alarm_time);
-      if (initialData.alarm_sound) setAlarmSound(initialData.alarm_sound);
+      if (initialData.alarm_sound) setAlarmSound(initialData.alarm_sound.replace(/\.mp3$|\.wav$/, ''));
 
       if (initialData.id) {
+        setIsLoadingReminders(true);
         reminderRepository.getByHabitId(initialData.id).then((reminders) => {
           if (reminders && reminders.length > 0) {
             setRemindMe(true);
-            setReminderTimes(reminders.map((r) => r.time));
-            setReminderSound(reminders[0].sound || 'ringtone_1.mp3');
-            setReminderVibrate(reminders[0].vibrate === 1);
-            setReminderMessage(reminders[0].body || '');
-            if (reminders[0].days && reminders[0].days.length > 0) {
-              setRepeatDays(reminders[0].days);
-              setFrequencyMode(reminders[0].days.length === 7 ? 'daily' : 'specific');
-            }
+            setReminderItems(
+              reminders.map((r) => ({
+                id: r.id,
+                time: r.time,
+                sound: (r.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
+                vibrate: r.vibrate !== 0,
+                message: r.body || ''
+              }))
+            );
+          } else {
+            setRemindMe(false);
+            setReminderItems([{ time: '08:00', sound: 'ringtone_1', vibrate: true, message: '' }]);
           }
+        }).catch((err) => {
+          console.error('Failed to load existing reminders:', err);
+        }).finally(() => {
+          setIsLoadingReminders(false);
         });
+      } else {
+        setIsLoadingReminders(false);
       }
+    } else {
+      setIsLoadingReminders(false);
     }
   }, [initialData?.id]);
 
@@ -157,6 +180,11 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
   const handleTypeChange = (newType: HabitType) => {
     setType(newType);
     setTargetError('');
+    if (initialData && initialData.type !== newType) {
+      setTypeChangeWarning("Notice: Changing habit type will reset today's progress to 0.");
+    } else {
+      setTypeChangeWarning('');
+    }
     if (newType === 'check') {
       setTargetValue(1);
       setUnit('done');
@@ -230,27 +258,41 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
   };
 
   const handleToggleSoundPreview = (soundId: string) => {
-    if (playingSound === soundId) {
+    const cleanSound = soundId.replace(/\.mp3$|\.wav$/, '');
+    if (playingSound === cleanSound) {
       SoundService.stopSound();
       setPlayingSound(null);
     } else {
-      SoundService.playSound(soundId, () => setPlayingSound(null));
-      setPlayingSound(soundId);
+      SoundService.playSound(cleanSound, () => setPlayingSound(null));
+      setPlayingSound(cleanSound);
     }
   };
 
-  const handleAddTime = () => {
-    setReminderTimes([...reminderTimes, '20:00']);
+  const handleAddReminderItem = () => {
+    setReminderItems((prev) => [
+      ...prev,
+      { time: '20:00', sound: 'ringtone_1', vibrate: true, message: '' }
+    ]);
   };
 
-  const handleRemoveTime = (index: number) => {
-    if (reminderTimes.length > 1) {
-      setReminderTimes(reminderTimes.filter((_, i) => i !== index));
+  const handleRemoveReminderItem = (index: number) => {
+    if (reminderItems.length > 1) {
+      setReminderItems((prev) => prev.filter((_, i) => i !== index));
     }
+  };
+
+  const handleUpdateReminderItem = (index: number, updates: Partial<ReminderFormItem>) => {
+    setReminderItems((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], ...updates };
+      return next;
+    });
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoadingReminders) return;
+
     setNameError('');
     setTargetError('');
 
@@ -302,11 +344,21 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
       finalTargetValue = 1;
     }
 
+    // Check exact alarm permission on Android 12+ if reminders enabled
+    if (remindMe || type === 'alarm') {
+      const dev = await NotificationService.getDeviceInfo();
+      if (dev && dev.sdkVersion >= 31 && !dev.canScheduleExactAlarms) {
+        setExactAlarmBlocked(true);
+        if (onShowToast) {
+          onShowToast('error', 'Exact alarm permission required for reminders to ring on time.');
+        }
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       const activeRepeatDays = frequencyMode === 'daily' ? [0, 1, 2, 3, 4, 5, 6] : repeatDays;
-
-      // Generate the habit ID HERE so we can link reminders to it before saving
       const habitId = initialData?.id || generateId('habit');
 
       const habitPayload = {
@@ -324,46 +376,63 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
         alarm_sound: type === 'alarm' ? alarmSound : undefined
       };
 
+      // Prepare target new reminders
+      let newReminderObjects: Reminder[] = [];
+      if (remindMe || type === 'alarm') {
+        const itemsToSchedule: ReminderFormItem[] =
+          type === 'alarm'
+            ? [{ time: alarmTime, sound: alarmSound, vibrate: true, message: `Wake up! Time for ${trimmedName}` }]
+            : reminderItems;
+
+        newReminderObjects = itemsToSchedule.map((item) => {
+          const remId = item.id || generateId('rem');
+          return {
+            id: remId,
+            habit_id: habitId,
+            title: trimmedName,
+            body: item.message.trim() || `Time for ${trimmedName}!`,
+            time: item.time,
+            days: activeRepeatDays, // strictly from habit frequency
+            sound: (item.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
+            vibrate: item.vibrate ? 1 : 0,
+            enabled: 1,
+            notif_id: habitNotifId(remId, 0)
+          };
+        });
+
+        // 1. ATOMIC: Schedule new reminders FIRST before deleting old ones!
+        for (const rem of newReminderObjects) {
+          const ok = await NotificationService.scheduleReminder(rem);
+          if (ok === false) {
+            throw new Error(`Failed to arm native alarm for reminder at ${rem.time}`);
+          }
+        }
+      }
+
+      // 2. Save habit payload (stripped of store fields)
       if (onSave) {
         await onSave(habitPayload);
       }
 
-      // Schedule or cleanup reminders
+      // 3. Scheduling succeeded: delete old reminders that are no longer kept
       if (initialData?.id) {
-        // Clear old habit-linked reminders before saving new ones
         const existingReminders = await reminderRepository.getByHabitId(initialData.id);
-        for (const rem of existingReminders) {
-          await NotificationService.cancelReminder(rem.id);
-          await reminderRepository.delete(rem.id);
+        const newIds = new Set(newReminderObjects.map((r) => r.id));
+        for (const oldRem of existingReminders) {
+          if (!newIds.has(oldRem.id) || (!remindMe && type !== 'alarm')) {
+            await NotificationService.cancelReminder(oldRem.id);
+            await reminderRepository.delete(oldRem.id);
+          }
         }
       }
 
-      if (remindMe || type === 'alarm') {
-        // Check permission first, request only if needed
-        const perm = await LocalNotifications.checkPermissions();
-        if (perm.display !== 'granted') {
-          await NotificationService.requestPermissions();
-        }
-        const timesToSchedule = type === 'alarm' ? [alarmTime] : reminderTimes;
-        const soundToUse = type === 'alarm' ? alarmSound : reminderSound;
-
-        for (const timeStr of timesToSchedule) {
-          const remId = generateId('rem');
-          const newReminder = {
-            id: remId,
-            habit_id: habitId, // ✅ now correctly linked
-            title: trimmedName,
-            body: reminderMessage.trim() || `Time for ${trimmedName}!`,
-            time: timeStr,
-            days: activeRepeatDays,
-            sound: soundToUse,
-            vibrate: reminderVibrate ? 1 : 0,
-            enabled: 1,
-            // Store a placeholder notif_id (actual IDs are derived from remId via habitNotifId)
-            notif_id: habitNotifId(remId, 0)
-          };
-          await reminderRepository.create(newReminder);
-          await NotificationService.scheduleReminder(newReminder);
+      // 4. Save/update new reminders in repository
+      for (const rem of newReminderObjects) {
+        const existing = await reminderRepository.getById(rem.id);
+        if (existing) {
+          await reminderRepository.update(rem);
+        } else {
+          await reminderRepository.create(rem);
         }
       }
 
@@ -372,9 +441,11 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
       }
       onBack();
     } catch (err: any) {
-      console.error('Error saving habit:', err);
+      console.error('Error saving habit / scheduling reminders:', err);
       if (onShowToast) {
-        onShowToast('error', err?.message || 'Failed to save habit. Please try again.');
+        onShowToast('error', err?.message === 'SCHEDULE_EXACT_ALARM_PERMISSION_REQUIRED'
+          ? 'Exact alarm permission is required in Android Settings.'
+          : err?.message || 'Failed to save habit. Please try again.');
       }
     } finally {
       setIsSaving(false);
@@ -474,6 +545,13 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
               );
             })}
           </div>
+
+          {typeChangeWarning && (
+            <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center gap-2 text-amber-300 text-xs mt-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+              <span>{typeChangeWarning}</span>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Fields Based on Task Type */}
@@ -745,104 +823,172 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
           )}
         </GlassCard>
 
-        {/* Reminder Card with Toggle (Fix C) */}
+        {/* Reminder Card with Toggle */}
         {type !== 'alarm' && (
           <GlassCard className="p-4 space-y-3">
             <Toggle
               checked={remindMe}
-              onChange={setRemindMe}
+              onChange={(val) => {
+                setRemindMe(val);
+                if (val) {
+                  NotificationService.getDeviceInfo().then((dev) => {
+                    if (dev && dev.sdkVersion >= 31 && !dev.canScheduleExactAlarms) {
+                      setExactAlarmBlocked(true);
+                    }
+                  });
+                }
+              }}
               label="Remind Me"
-              description={remindMe ? `${reminderTimes.length} time(s) set` : 'No reminder'}
+              description={
+                isLoadingReminders
+                  ? 'Loading saved alarms...'
+                  : remindMe
+                  ? `${reminderItems.length} reminder(s) configured`
+                  : 'No reminder'
+              }
             />
 
+            {isLoadingReminders && (
+              <div className="flex items-center justify-center p-3 text-xs text-slate-400 gap-2 border-t border-white/10">
+                <div className="w-3.5 h-3.5 border-2 border-neon-cyan border-t-transparent rounded-full animate-spin" />
+                <span>Loading saved reminders from database...</span>
+              </div>
+            )}
+
+            {exactAlarmBlocked && (
+              <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 space-y-2 mt-2">
+                <div className="flex items-center gap-2 text-amber-300 font-semibold text-xs">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                  <span>Exact Alarm Permission Required</span>
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Android requires special permission to ring reminder alarms when the phone is locked or OrbitHabit is swiped away.
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await NotificationService.openExactAlarmSettings();
+                    setTimeout(async () => {
+                      const dev = await NotificationService.getDeviceInfo();
+                      if (dev?.canScheduleExactAlarms) setExactAlarmBlocked(false);
+                    }, 2000);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 font-bold hover:bg-amber-500/30 text-xs w-full text-center"
+                >
+                  Open Alarm Settings →
+                </button>
+              </div>
+            )}
+
             <AnimatePresence>
-              {remindMe && (
+              {remindMe && !isLoadingReminders && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
                   className="space-y-3 pt-2 border-t border-white/10"
                 >
-                  <div className="space-y-2">
-                    <label className="text-xs font-medium text-slate-300">
-                      Reminder Time(s)
-                    </label>
-                    <div className="space-y-2">
-                      {reminderTimes.map((timeStr, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <input
-                            type="time"
-                            value={timeStr}
-                            onChange={(e) => {
-                              const updated = [...reminderTimes];
-                              updated[idx] = e.target.value;
-                              setReminderTimes(updated);
-                            }}
-                            className="bg-space-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono flex-1"
-                          />
-                          {reminderTimes.length > 1 && (
+                  <div className="space-y-3">
+                    {reminderItems.map((item, idx) => (
+                      <div
+                        key={item.id || idx}
+                        className="p-3 rounded-xl bg-space-900 border border-white/10 space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-neon-cyan uppercase font-mono">
+                            Reminder #{idx + 1}
+                          </span>
+                          {reminderItems.length > 1 && (
                             <button
                               type="button"
-                              onClick={() => handleRemoveTime(idx)}
-                              className="p-2 text-slate-400 hover:text-rose-400"
+                              onClick={() => handleRemoveReminderItem(idx)}
+                              className="text-slate-400 hover:text-rose-400 p-1"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
-                      ))}
-                    </div>
 
-                    <button
-                      type="button"
-                      onClick={handleAddTime}
-                      className="text-xs text-neon-cyan hover:underline flex items-center gap-1 font-medium pt-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add another time
-                    </button>
+                        {/* Time Picker */}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="time"
+                            value={item.time}
+                            onChange={(e) =>
+                              handleUpdateReminderItem(idx, { time: e.target.value })
+                            }
+                            className="bg-space-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono flex-1 focus:border-neon-cyan focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Sound Picker & Preview */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-slate-400 font-medium block">
+                            Alarm Sound
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={item.sound}
+                              onChange={(e) =>
+                                handleUpdateReminderItem(idx, { sound: e.target.value })
+                              }
+                              className="flex-1 bg-space-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-neon-cyan focus:outline-none"
+                            >
+                              <option value="ringtone_1">Orbit - Celestial Chime</option>
+                              <option value="ringtone_2">Orbit - Upbeat Pulse</option>
+                              <option value="ringtone_3">Orbit - Bright Resonance</option>
+                              <option value="ringtone_4">Orbit - Deep Nebula</option>
+                              <option value="ringtone_5">Orbit - Cosmic Bell</option>
+                              <option value="default">System Default Sound</option>
+                              <option value="silent">Silent (Vibrate Only)</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSoundPreview(item.sound)}
+                              className={`p-2 rounded-xl border ${
+                                playingSound === item.sound.replace(/\.mp3$|\.wav$/, '')
+                                  ? 'bg-neon-cyan text-space-950 border-neon-cyan'
+                                  : 'bg-space-950 text-slate-300 border-white/10'
+                              }`}
+                            >
+                              {playingSound === item.sound.replace(/\.mp3$|\.wav$/, '') ? (
+                                <Square className="w-4 h-4" />
+                              ) : (
+                                <Play className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Vibrate Toggle */}
+                        <Toggle
+                          checked={item.vibrate}
+                          onChange={(v) => handleUpdateReminderItem(idx, { vibrate: v })}
+                          label="Vibrate"
+                          description="Trigger haptic vibration with alarm"
+                        />
+
+                        {/* Optional Custom Message */}
+                        <input
+                          type="text"
+                          value={item.message}
+                          onChange={(e) =>
+                            handleUpdateReminderItem(idx, { message: e.target.value })
+                          }
+                          placeholder={`Custom reminder message (optional)...`}
+                          className="w-full bg-space-950 border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-neon-cyan focus:outline-none"
+                        />
+                      </div>
+                    ))}
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-slate-300">
-                      Ringtone Picker
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={reminderSound}
-                        onChange={(e) => setReminderSound(e.target.value)}
-                        className="flex-1 bg-space-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
-                      >
-                        <option value="ringtone_1.mp3">Orbit - Celestial Chime</option>
-                        <option value="ringtone_2.mp3">Orbit - Upbeat Pulse</option>
-                        <option value="ringtone_3.mp3">Orbit - Bright Resonance</option>
-                        <option value="ringtone_4.mp3">Orbit - Deep Nebula</option>
-                        <option value="ringtone_5.mp3">Orbit - Cosmic Bell</option>
-                        <option value="silent">Silent</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleSoundPreview(reminderSound)}
-                        className={`p-2 rounded-xl border ${
-                          playingSound === reminderSound
-                            ? 'bg-neon-cyan text-space-950 border-neon-cyan'
-                            : 'bg-space-900 text-slate-300 border-white/10'
-                        }`}
-                      >
-                        {playingSound === reminderSound ? (
-                          <Square className="w-4 h-4" />
-                        ) : (
-                          <Play className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  <Toggle
-                    checked={reminderVibrate}
-                    onChange={setReminderVibrate}
-                    label="Vibrate"
-                    description="Trigger phone vibration with reminder"
-                  />
+                  <button
+                    type="button"
+                    onClick={handleAddReminderItem}
+                    className="text-xs text-neon-cyan hover:underline flex items-center gap-1 font-medium pt-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add another reminder time
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -901,13 +1047,18 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
             type="submit"
             variant="primary"
             size="lg"
-            disabled={isSaving}
+            disabled={isSaving || isLoadingReminders}
             className="w-full font-bold shadow-[0_0_20px_rgba(0,240,255,0.4)]"
           >
             {isSaving ? (
               <div className="flex items-center justify-center gap-2">
                 <div className="w-4 h-4 border-2 border-space-950 border-t-transparent rounded-full animate-spin" />
                 <span>Saving to Orbit...</span>
+              </div>
+            ) : isLoadingReminders ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-space-950 border-t-transparent rounded-full animate-spin" />
+                <span>Loading Alarms...</span>
               </div>
             ) : initialData ? (
               'SAVE CHANGES'
