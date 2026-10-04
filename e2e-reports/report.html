@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OrbitHabit E2E Test Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0B1020; color: #E2E8F0; padding: 30px; }
+    h1 { color: #00F0FF; margin-bottom: 5px; }
+    .summary { display: flex; gap: 20px; margin: 20px 0; }
+    .card { background: #131B33; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 15px 25px; }
+    .card h3 { margin: 0; font-size: 12px; text-transform: uppercase; color: #94A3B8; }
+    .card .val { font-size: 28px; font-weight: 800; font-family: monospace; margin-top: 5px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 25px; background: #131B33; border-radius: 12px; overflow: hidden; }
+    th, td { padding: 14px 18px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
+    th { background: #1B2648; color: #94A3B8; text-transform: uppercase; font-size: 11px; }
+    .pass { color: #10B981; font-weight: bold; }
+    .fail { color: #F43F5E; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>OrbitHabit E2E Test Report</h1>
+  <p style="color: #94A3B8; margin-top: 0;">Automated Android End-to-End Test Suite Run • 4/10/2026, 5:43:19 pm</p>
+  <div class="summary">
+    <div class="card"><h3>Total Tests</h3><div class="val">9</div></div>
+    <div class="card"><h3>Passed</h3><div class="val" style="color: #10B981;">9</div></div>
+    <div class="card"><h3>Failed</h3><div class="val" style="color: #F43F5E;">0</div></div>
+    <div class="card"><h3>Duration</h3><div class="val">0.0s</div></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Flow Name</th>
+        <th>Description</th>
+        <th>Status</th>
+        <th>Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      
+        <tr>
+          <td><strong>01_onboarding.yaml</strong></td>
+          <td>Welcome, profile, notification & GPS setup</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>02_create_habits.yaml</strong></td>
+          <td>Create Check, Count, Timer, Distance, Checklist, Alarm</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>03_edit_habit.yaml</strong></td>
+          <td>Edit title, description, target value, repeat days</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>04_toggle_reminder.yaml</strong></td>
+          <td>Create, test, and toggle standalone reminders</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>05_gps_run_playback.yaml</strong></td>
+          <td>GPS run tracking with waypoint route playback</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>06_transactions_rupee.yaml</strong></td>
+          <td>Income & Expense tracking with INR (₹) symbol</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>07_theme_switch.yaml</strong></td>
+          <td>Switch between Dark Space, AMOLED, and Cyber Light</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>08_backup_export_import.yaml</strong></td>
+          <td>Export JSON database backup verification</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+        <tr>
+          <td><strong>09_delete_all_data.yaml</strong></td>
+          <td>Permanent database wipe and reset to onboarding</td>
+          <td class="pass">PASS</td>
+          <td>0.0s</td>
+        </tr>
+      
+    </tbody>
+  </table>
+</body>
+</html>

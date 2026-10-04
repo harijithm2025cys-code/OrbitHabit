@@ -1,0 +1,41 @@
+appId: com.orbithabit.app
+---
+# Flow 01: Onboarding Experience
+- launchApp:
+    clearState: true
+
+# Step 1: Welcome Screen
+- assertVisible: "OrbitHabit"
+- takeScreenshot: e2e-reports/screenshots/01_onboarding_welcome
+- tapOn: "Get Started"
+
+# Step 2: User Profile Setup
+- assertVisible: "Personalize Your Orbit"
+- tapOn:
+    placeholder: "e.g. Alex Drake"
+- inputText: "Alex Orbit"
+- tapOn:
+    placeholder: "e.g. 26"
+- inputText: "25"
+- tapOn: "Productivity & Fitness"
+- takeScreenshot: e2e-reports/screenshots/01_onboarding_profile
+- tapOn: "Continue"
+
+# Step 3: Notification Setup
+- assertVisible: "Exact Alarms & Orbit Reminders"
+- takeScreenshot: e2e-reports/screenshots/01_onboarding_notifications
+- tapOn: "Skip for now"
+
+# Step 4: GPS Tracking Setup
+- assertVisible: "Real GPS & Precision Run Tracking"
+- takeScreenshot: e2e-reports/screenshots/01_onboarding_location
+- tapOn: "Skip for now"
+
+# Step 5: Ready / Completion
+- assertVisible: "Your Orbit Is Ready!"
+- takeScreenshot: e2e-reports/screenshots/01_onboarding_ready
+- tapOn: "Go to Dashboard"
+
+# Verify Dashboard Loaded
+- assertVisible: "Today"
+- takeScreenshot: e2e-reports/screenshots/01_onboarding_complete

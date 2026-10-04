@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="OrbitHabit Test Suite" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>OrbitHabit 1km Loop Test Track</name>
+    <desc>Synthetic walking track for emulator GPS route playback and accuracy testing</desc>
+    <time>2026-10-04T12:00:00Z</time>
+  </metadata>
+  <trk>
+    <name>Morning Park Loop</name>
+    <trkseg>
+      <trkpt lat="37.774900" lon="-122.419400"><ele>12.0</ele><time>2026-10-04T12:00:00Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.775350" lon="-122.418850"><ele>12.2</ele><time>2026-10-04T12:00:30Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.775800" lon="-122.418300"><ele>12.5</ele><time>2026-10-04T12:01:00Z</time><speed>1.5</speed></trkpt>
+      <trkpt lat="37.776350" lon="-122.417700"><ele>12.8</ele><time>2026-10-04T12:01:30Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.776900" lon="-122.417100"><ele>13.1</ele><time>2026-10-04T12:02:00Z</time><speed>1.5</speed></trkpt>
+      <trkpt lat="37.777550" lon="-122.416450"><ele>13.3</ele><time>2026-10-04T12:02:30Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.778200" lon="-122.415800"><ele>13.5</ele><time>2026-10-04T12:03:00Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.778850" lon="-122.415150"><ele>13.7</ele><time>2026-10-04T12:03:30Z</time><speed>1.5</speed></trkpt>
+      <trkpt lat="37.779500" lon="-122.414500"><ele>14.0</ele><time>2026-10-04T12:04:00Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.780150" lon="-122.413850"><ele>14.2</ele><time>2026-10-04T12:04:30Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.780800" lon="-122.413200"><ele>14.4</ele><time>2026-10-04T12:05:00Z</time><speed>1.5</speed></trkpt>
+      <trkpt lat="37.781450" lon="-122.412550"><ele>14.6</ele><time>2026-10-04T12:05:30Z</time><speed>1.4</speed></trkpt>
+      <trkpt lat="37.782100" lon="-122.411900"><ele>14.8</ele><time>2026-10-04T12:06:00Z</time><speed>1.4</speed></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

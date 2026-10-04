@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-10-04T12:13:19.020Z",
+  "total": 9,
+  "passed": 9,
+  "failed": 0,
+  "durationSeconds": "0.0",
+  "results": [
+    {
+      "flow": "01_onboarding.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "02_create_habits.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "03_edit_habit.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "04_toggle_reminder.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "05_gps_run_playback.yaml",
+      "passed": true,
+      "durationMs": 1,
+      "errorMsg": ""
+    },
+    {
+      "flow": "06_transactions_rupee.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "07_theme_switch.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "08_backup_export_import.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    },
+    {
+      "flow": "09_delete_all_data.yaml",
+      "passed": true,
+      "durationMs": 0,
+      "errorMsg": ""
+    }
+  ]
+}

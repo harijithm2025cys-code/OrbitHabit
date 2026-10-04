@@ -1,0 +1,46 @@
+appId: com.orbithabit.app
+---
+# Flow 04: Toggle Reminder and Alarms
+- launchApp:
+    clearState: false
+
+# Navigate to Profile / Settings
+- tapOn: "Profile"
+- assertVisible: "Settings & System"
+
+# Open Reminders & Alarms Page
+- tapOn: "Alarms & Reminders"
+  optional: true
+- tapOn: "Exact Alarms & Reminders"
+  optional: true
+- assertVisible: "Alarms & Reminders"
+- takeScreenshot: e2e-reports/screenshots/04_reminders_list_initial
+
+# Add a New Standalone Reminder
+- tapOn:
+    id: "Plus"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Morning Meditation, Drink Water..."
+- inputText: "Hydration Ping"
+
+# Select Sound & Time
+- tapOn: "Celestial Chime"
+  optional: true
+- tapOn: "Save Reminder"
+
+# Verify Reminder Appears
+- assertVisible: "Hydration Ping"
+- takeScreenshot: e2e-reports/screenshots/04_reminder_added
+
+# Toggle Reminder On / Off
+- tapOn:
+    text: "Hydration Ping"
+    optional: true
+- takeScreenshot: e2e-reports/screenshots/04_reminder_toggled
+
+# Return to Profile
+- back:
+    optional: true
+- tapOn: "Profile"
+  optional: true

@@ -1,0 +1,103 @@
+appId: com.orbithabit.app
+---
+# Flow 02: Create Each Habit Type (Check, Count, Timer, Distance, Checklist, Alarm)
+- launchApp:
+    clearState: false
+
+# 1. Create Standard Check Habit
+- tapOn:
+    id: "Add Habit"
+    optional: true
+- tapOn:
+    text: "Add Habit"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Read 20 pages, Morning Run..."
+- inputText: "Drink 2L Water"
+- tapOn:
+    placeholder: "Why this habit matters to your orbit..."
+- inputText: "Hydration is key for peak daily cognitive focus"
+- scroll
+- tapOn: "Create Habit Mission"
+- assertVisible: "Drink 2L Water"
+
+# 2. Create Counter Habit
+- tapOn:
+    id: "Add Habit"
+    optional: true
+- tapOn:
+    text: "Add Habit"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Read 20 pages, Morning Run..."
+- inputText: "Pushups"
+- tapOn: "Counter"
+- tapOn: "10"
+- scroll
+- tapOn: "Create Habit Mission"
+- assertVisible: "Pushups"
+
+# 3. Create Duration (Timer) Habit
+- tapOn:
+    id: "Add Habit"
+    optional: true
+- tapOn:
+    text: "Add Habit"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Read 20 pages, Morning Run..."
+- inputText: "Deep Meditation"
+- tapOn: "Duration"
+- tapOn: "15m"
+- scroll
+- tapOn: "Create Habit Mission"
+- assertVisible: "Deep Meditation"
+
+# 4. Create Distance (GPS) Habit
+- tapOn:
+    id: "Add Habit"
+    optional: true
+- tapOn:
+    text: "Add Habit"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Read 20 pages, Morning Run..."
+- inputText: "Morning Run"
+- tapOn: "Distance"
+- tapOn: "5 km"
+- scroll
+- tapOn: "Create Habit Mission"
+- assertVisible: "Morning Run"
+
+# 5. Create Checklist Habit
+- tapOn:
+    id: "Add Habit"
+    optional: true
+- tapOn:
+    text: "Add Habit"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Read 20 pages, Morning Run..."
+- inputText: "Evening Routine"
+- tapOn: "Checklist"
+- scroll
+- tapOn: "Create Habit Mission"
+- assertVisible: "Evening Routine"
+
+# 6. Create Wake Up Alarm Habit
+- tapOn:
+    id: "Add Habit"
+    optional: true
+- tapOn:
+    text: "Add Habit"
+    optional: true
+- tapOn:
+    placeholder: "e.g. Read 20 pages, Morning Run..."
+- inputText: "Wake Up Early"
+- tapOn: "Wake Up"
+- scroll
+- tapOn: "Create Habit Mission"
+- assertVisible: "Wake Up Early"
+
+# Take screenshot of all created habit types
+- takeScreenshot: e2e-reports/screenshots/02_all_habits_created

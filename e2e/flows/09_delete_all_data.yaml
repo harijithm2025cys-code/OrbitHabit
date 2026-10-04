@@ -1,0 +1,29 @@
+appId: com.orbithabit.app
+---
+# Flow 09: Delete All Data & Reset App to Pristine State
+- launchApp:
+    clearState: false
+
+# Navigate to Profile / Settings
+- tapOn: "Profile"
+- assertVisible: "Data Management"
+
+# Open Reset Confirmation Sheet
+- scroll
+- tapOn: "Delete All Data & Reset App"
+- assertVisible: "Reset All Orbit Data?"
+- takeScreenshot: e2e-reports/screenshots/09_reset_modal_opened
+
+# Type Confirmation Keyword
+- tapOn:
+    placeholder: "DELETE"
+- inputText: "DELETE"
+- takeScreenshot: e2e-reports/screenshots/09_reset_keyword_entered
+
+# Confirm Reset & Wipe
+- tapOn: "Delete Everything"
+
+# Verify App Reset and Returned to Onboarding Welcome
+- assertVisible: "OrbitHabit"
+- assertVisible: "Get Started"
+- takeScreenshot: e2e-reports/screenshots/09_reset_complete

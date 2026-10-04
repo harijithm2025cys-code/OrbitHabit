@@ -1,0 +1,179 @@
+/* Base tokens for Dark Space (default) */
+:root,
+:root[data-theme="dark-space"] {
+  --bg-app: #050814;
+  --bg-surface: #0b112c;
+  --bg-surface-2: #11183c;
+  --bg-surface-hover: #1b2454;
+  --bg-card: rgba(13, 19, 43, 0.85);
+  --bg-card-hover: rgba(23, 33, 74, 0.92);
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-active: rgba(0, 240, 255, 0.35);
+  --border-glass: rgba(255, 255, 255, 0.09);
+  --border-glass-glow: rgba(0, 240, 255, 0.3);
+  
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  
+  --nav-bg: rgba(7, 11, 25, 0.92);
+  --modal-bg: #0b1020;
+  
+  --accent-cyan: #00f0ff;
+  --accent-purple: #a855f7;
+  --accent-violet: #8b5cf6;
+  --accent-magenta: #d946ef;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  
+  --glass-blur: 16px;
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+  --safe-top: env(safe-area-inset-top, 16px);
+  color-scheme: dark;
+}
+
+/* AMOLED Black theme */
+:root[data-theme="amoled"] {
+  --bg-app: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-surface-2: #121212;
+  --bg-surface-hover: #1c1c1c;
+  --bg-card: rgba(10, 10, 10, 0.95);
+  --bg-card-hover: rgba(25, 25, 25, 0.98);
+  --border-subtle: rgba(255, 255, 255, 0.12);
+  --border-active: rgba(0, 240, 255, 0.5);
+  --border-glass: rgba(255, 255, 255, 0.12);
+  --border-glass-glow: rgba(0, 240, 255, 0.4);
+  
+  --text-main: #ffffff;
+  --text-muted: #a1a1aa;
+  --text-dim: #71717a;
+  
+  --nav-bg: rgba(0, 0, 0, 0.96);
+  --modal-bg: #000000;
+  
+  --accent-cyan: #00f0ff;
+  --accent-purple: #a855f7;
+  --accent-violet: #8b5cf6;
+  --accent-magenta: #d946ef;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  
+  --glass-blur: 16px;
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+  --safe-top: env(safe-area-inset-top, 16px);
+  color-scheme: dark;
+}
+
+/* Cyber Light theme */
+:root[data-theme="cyber-light"] {
+  --bg-app: #f1f5f9;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #f8fafc;
+  --bg-surface-hover: #e2e8f0;
+  --bg-card: rgba(255, 255, 255, 0.95);
+  --bg-card-hover: rgba(241, 245, 249, 0.98);
+  --border-subtle: rgba(15, 23, 42, 0.1);
+  --border-active: rgba(2, 132, 199, 0.5);
+  --border-glass: rgba(15, 23, 42, 0.1);
+  --border-glass-glow: rgba(2, 132, 199, 0.3);
+  
+  --text-main: #0f172a;
+  --text-muted: #334155;
+  --text-dim: #64748b;
+  
+  --nav-bg: rgba(255, 255, 255, 0.96);
+  --modal-bg: #ffffff;
+  
+  --accent-cyan: #0284c7;
+  --accent-purple: #7c3aed;
+  --accent-violet: #6d28d9;
+  --accent-magenta: #c026d3;
+  --accent-emerald: #059669;
+  --accent-amber: #d97706;
+  --accent-rose: #e11d48;
+  
+  --glass-blur: 16px;
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+  --safe-top: env(safe-area-inset-top, 16px);
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+.light {
+  color-scheme: light;
+}
+
+/* Glassmorphic utilities */
+.glass-panel {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+}
+
+.glass-panel-interactive {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border-glass);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-interactive:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-active);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel-interactive:active {
+  transform: scale(0.98);
+}
+
+.neon-glow-cyan {
+  box-shadow: 0 0 25px -4px var(--accent-cyan);
+}
+
+.neon-glow-purple {
+  box-shadow: 0 0 25px -4px var(--accent-purple);
+}
+
+.neon-glow-emerald {
+  box-shadow: 0 0 25px -4px var(--accent-emerald);
+}
+
+.neon-glow-magenta {
+  box-shadow: 0 0 25px -4px var(--accent-magenta);
+}
+
+.neon-text-cyan {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 12px var(--accent-cyan);
+}
+
+.neon-text-purple {
+  color: var(--accent-purple);
+  text-shadow: 0 0 12px var(--accent-purple);
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-active);
+}

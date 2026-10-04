@@ -1,0 +1,23 @@
+appId: com.orbithabit.app
+---
+# OrbitHabit Master E2E Test Suite (Maestro)
+# Executes all flows in full regression sequence:
+# 1. Onboarding
+# 2. Create All Habit Types (Check, Count, Timer, Distance, Checklist, Alarm)
+# 3. Edit Habit (All fields, target, description, days)
+# 4. Toggle Reminders
+# 5. GPS Run Tracking with Mock Location Playback
+# 6. Money Ledger with Indian Rupee (₹) Transactions
+# 7. Theme Switching (Dark Space, AMOLED Black, Cyber Light)
+# 8. Backup & Data Management
+# 9. Delete All Data & Reset
+
+- runFlow: 01_onboarding.yaml
+- runFlow: 02_create_habits.yaml
+- runFlow: 03_edit_habit.yaml
+- runFlow: 04_toggle_reminder.yaml
+- runFlow: 05_gps_run_playback.yaml
+- runFlow: 06_transactions_rupee.yaml
+- runFlow: 07_theme_switch.yaml
+- runFlow: 08_backup_export_import.yaml
+- runFlow: 09_delete_all_data.yaml

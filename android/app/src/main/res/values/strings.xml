@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">OrbitHabit</string>
+    <string name="title_activity_main">OrbitHabit</string>
+    <string name="package_name">com.orbithabit.app</string>
+    <string name="custom_url_scheme">com.orbithabit.app</string>
+</resources>

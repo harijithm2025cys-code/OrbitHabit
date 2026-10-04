@@ -1,0 +1,73 @@
+appId: com.orbithabit.app
+---
+# Flow 05: GPS Run Tracking with Mocked Route Playback
+- launchApp:
+    clearState: false
+
+# Return to Today Dashboard
+- tapOn: "Today"
+- assertVisible: "Sunrise Trail Run"
+
+# Open GPS Run Tracker
+- tapOn: "Sunrise Trail Run"
+- assertVisible: "Habit Mission"
+- tapOn: "Start GPS Mission"
+  optional: true
+- tapOn:
+    id: "Navigation"
+    optional: true
+
+# Verify GPS Mission Tracker Loaded
+- assertVisible: "GPS Mission Tracker"
+- takeScreenshot: e2e-reports/screenshots/05_gps_screen_ready
+
+# Start the Run
+- tapOn: "Start GPS Mission"
+
+# Playback Mock Route: Waypoint 1 (Starting Point)
+- setLocation:
+    latitude: 37.77490
+    longitude: -122.41940
+
+# Playback Mock Route: Waypoint 2 (~120m North-East)
+- setLocation:
+    latitude: 37.77580
+    longitude: -122.41830
+
+# Playback Mock Route: Waypoint 3 (~250m North-East)
+- setLocation:
+    latitude: 37.77690
+    longitude: -122.41710
+
+# Playback Mock Route: Waypoint 4 (~400m North-East)
+- setLocation:
+    latitude: 37.77820
+    longitude: -122.41580
+
+# Capture Active Tracking State
+- takeScreenshot: e2e-reports/screenshots/05_gps_tracking_active
+
+# Pause & Resume Run Flow
+- tapOn:
+    id: "Pause"
+    optional: true
+- takeScreenshot: e2e-reports/screenshots/05_gps_tracking_paused
+- tapOn:
+    id: "Play"
+    optional: true
+
+# Finish Run
+- tapOn:
+    id: "Square"
+    optional: true
+- tapOn: "Stop & Finish"
+  optional: true
+- tapOn: "Finish Run & Save"
+  optional: true
+
+# Return to Home
+- back:
+    optional: true
+- tapOn: "Today"
+  optional: true
+- takeScreenshot: e2e-reports/screenshots/05_gps_run_finished

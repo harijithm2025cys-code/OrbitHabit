@@ -1,0 +1,61 @@
+appId: com.orbithabit.app
+---
+# Flow 06: Manual Money Ledger with INR (₹) Currency Transactions
+- launchApp:
+    clearState: false
+
+# Navigate to Money Page
+- tapOn: "Money"
+- assertVisible: "Manual Money Tracker"
+- takeScreenshot: e2e-reports/screenshots/06_money_ledger_initial
+
+# 1. Add Expense in ₹
+- tapOn:
+    id: "Add transaction"
+    optional: true
+- tapOn:
+    text: "+ Add Transaction"
+    optional: true
+- assertVisible: "Add Transaction"
+- tapOn:
+    placeholder: "0.00"
+- inputText: "350"
+- tapOn: "Food"
+- tapOn:
+    placeholder: "e.g. Dinner with friends, salary..."
+- inputText: "Organic Grocery"
+- tapOn: "Save Transaction"
+
+# Verify Expense Added with ₹ Symbol
+- assertVisible: "Organic Grocery"
+- assertVisible: "₹"
+- takeScreenshot: e2e-reports/screenshots/06_expense_added_rupee
+
+# 2. Add Income in ₹
+- tapOn:
+    id: "Add transaction"
+    optional: true
+- tapOn:
+    text: "+ Add Transaction"
+    optional: true
+- tapOn: "Income"
+- tapOn:
+    placeholder: "0.00"
+- inputText: "5000"
+- tapOn:
+    placeholder: "e.g. Dinner with friends, salary..."
+- inputText: "Design project fee"
+- tapOn: "Save Transaction"
+
+# Verify Income Added
+- assertVisible: "Design project fee"
+- takeScreenshot: e2e-reports/screenshots/06_income_added_rupee
+
+# 3. Delete Transaction
+- tapOn:
+    id: "Delete Entry"
+    optional: true
+- tapOn:
+    text: "Delete Entry"
+    optional: true
+- takeScreenshot: e2e-reports/screenshots/06_transaction_deleted

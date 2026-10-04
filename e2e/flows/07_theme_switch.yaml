@@ -1,0 +1,21 @@
+appId: com.orbithabit.app
+---
+# Flow 07: Theme Switching (Dark Space, AMOLED Black, Cyber Light)
+- launchApp:
+    clearState: false
+
+# Navigate to Profile / Settings
+- tapOn: "Profile"
+- assertVisible: "Appearance & Theme"
+
+# 1. Switch to AMOLED Black
+- tapOn: "AMOLED Black"
+- takeScreenshot: e2e-reports/screenshots/07_theme_amoled_black
+
+# 2. Switch to Cyber Light
+- tapOn: "Cyber Light"
+- takeScreenshot: e2e-reports/screenshots/07_theme_cyber_light
+
+# 3. Switch back to Dark Space
+- tapOn: "Dark Space"
+- takeScreenshot: e2e-reports/screenshots/07_theme_dark_space

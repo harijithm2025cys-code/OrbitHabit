@@ -1,0 +1,59 @@
+appId: com.orbithabit.app
+---
+# Flow 03: Edit Habit (All Fields, Target, Description, Days)
+- launchApp:
+    clearState: false
+
+# Open Morning Run Detail View
+- tapOn: "Morning Run"
+- assertVisible: "Habit Mission"
+- takeScreenshot: e2e-reports/screenshots/03_habit_detail_before_edit
+
+# Tap Edit Button
+- tapOn:
+    id: "Edit"
+    optional: true
+- tapOn:
+    text: "Edit"
+    optional: true
+
+# Edit Name
+- tapOn:
+    text: "Morning Run"
+- eraseText: 20
+- inputText: "Sunrise Trail Run"
+
+# Edit Description
+- tapOn:
+    placeholder: "Why this habit matters to your orbit..."
+- eraseText: 60
+- inputText: "Jog through the pine forest trails with interval sprints"
+
+# Edit Target Distance
+- scroll
+- tapOn:
+    placeholder: "5 or 2.5"
+    optional: true
+- eraseText: 5
+- inputText: "7.5"
+
+# Toggle specific repeat day
+- tapOn: "Sat"
+  optional: true
+
+# Save Updated Habit
+- scroll
+- tapOn: "Save Changes"
+
+# Verify Detail View Reflects Updated Title & Description
+- assertVisible: "Sunrise Trail Run"
+- takeScreenshot: e2e-reports/screenshots/03_habit_edited_detail
+
+# Return to Home Dashboard & Verify Updates
+- tapOn:
+    id: "ArrowLeft"
+    optional: true
+- back:
+    optional: true
+- assertVisible: "Sunrise Trail Run"
+- takeScreenshot: e2e-reports/screenshots/03_habit_edited_home

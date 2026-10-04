@@ -1,0 +1,13 @@
+appId: com.orbithabit.app
+---
+# Flow 08: Backup Export & Data Management Verification
+- launchApp:
+    clearState: false
+
+# Navigate to Profile / Settings
+- tapOn: "Profile"
+- assertVisible: "Data Management"
+
+# Trigger Backup Export
+- tapOn: "Export Backup"
+- takeScreenshot: e2e-reports/screenshots/08_backup_exported
