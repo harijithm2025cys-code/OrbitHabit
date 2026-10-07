@@ -312,3 +312,65 @@ describe('3. Edit Habit Save Ordering & Atomicity', () => {
     expect(resetLog?.completed_at).toBeNull();
   });
 });
+
+describe('4. Custom URI Sound Handling', () => {
+  const customSoundUri = 'uri:content://media/external/audio/media/42';
+  const sampleHabit: Habit = {
+    id: 'habit_custom_sound_test',
+    name: 'Custom Sound Habit',
+    description: 'Testing uri: sound handling',
+    icon: '🎵',
+    color: '#FF0055',
+    type: 'check',
+    target_value: 1,
+    unit: 'done',
+    repeat_days: [0, 1, 2, 3, 4, 5, 6],
+    checklist_items: [],
+    created_at: 1700000000000,
+    archived: 0
+  };
+
+  const sampleReminder: Reminder = {
+    id: 'rem_custom_sound_42',
+    habit_id: sampleHabit.id,
+    title: 'Custom Sound Reminder',
+    body: 'Time to test sound',
+    time: '09:15',
+    days: [1, 2, 3],
+    sound: customSoundUri,
+    vibrate: 1,
+    enabled: 1,
+    notif_id: 4242
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await habitRepository.delete(sampleHabit.id);
+    await reminderRepository.delete(sampleReminder.id);
+  });
+
+  it('4.1: scheduleReminder and rescheduleAllReminders preserve uri: sound without modifying or stripping it', async () => {
+    await habitRepository.create(sampleHabit);
+    await reminderRepository.create(sampleReminder);
+
+    // 1. Test scheduleReminder
+    await NotificationService.scheduleReminder(sampleReminder);
+    expect(mockNativeAlarmHelper.scheduleReminders).toHaveBeenCalledTimes(1);
+    const scheduledPayload = mockNativeAlarmHelper.scheduleReminders.mock.calls[0][0];
+    expect(scheduledPayload.reminders[0].sound).toBe(customSoundUri);
+
+    mockNativeAlarmHelper.scheduleReminders.mockClear();
+
+    // 2. Test rescheduleAllReminders
+    await NotificationService.rescheduleAllReminders();
+    expect(mockNativeAlarmHelper.scheduleReminders).toHaveBeenCalledTimes(1);
+    const reschedPayload = mockNativeAlarmHelper.scheduleReminders.mock.calls[0][0];
+    const found = reschedPayload.reminders.find((r: any) => r.id === sampleReminder.id);
+    expect(found).toBeDefined();
+    expect(found.sound).toBe(customSoundUri);
+
+    await reminderRepository.delete(sampleReminder.id);
+    await habitRepository.delete(sampleHabit.id);
+  });
+});
+

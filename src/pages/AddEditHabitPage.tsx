@@ -127,7 +127,9 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
         setChecklistItems(initialData.checklist_items);
       }
       if (initialData.alarm_time) setAlarmTime(initialData.alarm_time);
-      if (initialData.alarm_sound) setAlarmSound(initialData.alarm_sound.replace(/\.mp3$|\.wav$/, ''));
+      if (initialData.alarm_sound) {
+        setAlarmSound(initialData.alarm_sound.startsWith('uri:') ? initialData.alarm_sound : initialData.alarm_sound.replace(/\.mp3$|\.wav$/, ''));
+      }
 
       if (initialData.id) {
         setIsLoadingReminders(true);
@@ -138,7 +140,7 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
               reminders.map((r) => ({
                 id: r.id,
                 time: r.time,
-                sound: (r.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
+                sound: r.sound?.startsWith('uri:') ? r.sound : (r.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
                 vibrate: r.vibrate !== 0,
                 message: r.body || ''
               }))
@@ -258,7 +260,7 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
   };
 
   const handleToggleSoundPreview = (soundId: string) => {
-    const cleanSound = soundId.replace(/\.mp3$|\.wav$/, '');
+    const cleanSound = soundId.startsWith('uri:') ? soundId : soundId.replace(/\.mp3$|\.wav$/, '');
     if (playingSound === cleanSound) {
       SoundService.stopSound();
       setPlayingSound(null);
@@ -393,7 +395,7 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
             body: item.message.trim() || `Time for ${trimmedName}!`,
             time: item.time,
             days: activeRepeatDays, // strictly from habit frequency
-            sound: (item.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
+            sound: item.sound?.startsWith('uri:') ? item.sound : (item.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
             vibrate: item.vibrate ? 1 : 0,
             enabled: 1,
             notif_id: habitNotifId(remId, 0)
@@ -922,10 +924,15 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
                         </div>
 
                         {/* Sound Picker & Preview */}
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-slate-400 font-medium block">
-                            Alarm Sound
-                          </label>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] text-slate-400 font-medium block">
+                              Alarm Sound
+                            </label>
+                            <span className="text-[10px] text-neon-cyan/70 font-mono">
+                              Plays at alarm volume
+                            </span>
+                          </div>
                           <div className="flex items-center gap-2">
                             <select
                               value={item.sound}
@@ -934,6 +941,9 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
                               }
                               className="flex-1 bg-space-950 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:border-neon-cyan focus:outline-none"
                             >
+                              {item.sound?.startsWith('uri:') && (
+                                <option value={item.sound}>Custom sound</option>
+                              )}
                               <option value="ringtone_1">Orbit - Celestial Chime</option>
                               <option value="ringtone_2">Orbit - Upbeat Pulse</option>
                               <option value="ringtone_3">Orbit - Bright Resonance</option>
@@ -942,20 +952,54 @@ export const AddEditHabitPage: React.FC<AddEditHabitPageProps> = ({
                               <option value="default">System Default Sound</option>
                               <option value="silent">Silent (Vibrate Only)</option>
                             </select>
+                            {item.sound !== 'silent' && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleSoundPreview(item.sound)}
+                                className={`p-2 rounded-xl border ${
+                                  playingSound === (item.sound?.startsWith('uri:') ? item.sound : item.sound?.replace(/\.mp3$|\.wav$/, ''))
+                                    ? 'bg-neon-cyan text-space-950 border-neon-cyan'
+                                    : 'bg-space-950 text-slate-300 border-white/10'
+                                }`}
+                              >
+                                {playingSound === (item.sound?.startsWith('uri:') ? item.sound : item.sound?.replace(/\.mp3$|\.wav$/, '')) ? (
+                                  <Square className="w-4 h-4" />
+                                ) : (
+                                  <Play className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Custom sound pickers */}
+                          <div className="grid grid-cols-2 gap-2 pt-1">
                             <button
                               type="button"
-                              onClick={() => handleToggleSoundPreview(item.sound)}
-                              className={`p-2 rounded-xl border ${
-                                playingSound === item.sound.replace(/\.mp3$|\.wav$/, '')
-                                  ? 'bg-neon-cyan text-space-950 border-neon-cyan'
-                                  : 'bg-space-950 text-slate-300 border-white/10'
-                              }`}
+                              onClick={async () => {
+                                try {
+                                  const s = await NotificationService.pickSound('system');
+                                  if (s) handleUpdateReminderItem(idx, { sound: s });
+                                } catch (err: any) {
+                                  if (onShowToast) onShowToast('error', err?.message || 'Failed to pick system sound');
+                                }
+                              }}
+                              className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/20 text-neon-cyan text-xs font-semibold transition"
                             >
-                              {playingSound === item.sound.replace(/\.mp3$|\.wav$/, '') ? (
-                                <Square className="w-4 h-4" />
-                              ) : (
-                                <Play className="w-4 h-4" />
-                              )}
+                              <span>🔔 Phone sounds</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const s = await NotificationService.pickSound('file');
+                                  if (s) handleUpdateReminderItem(idx, { sound: s });
+                                } catch (err: any) {
+                                  if (onShowToast) onShowToast('error', err?.message || 'Failed to pick audio file');
+                                }
+                              }}
+                              className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-neon-purple/30 bg-neon-purple/10 hover:bg-neon-purple/20 text-neon-purple text-xs font-semibold transition"
+                            >
+                              <span>📁 My file</span>
                             </button>
                           </div>
                         </div>

@@ -1,16 +1,28 @@
 package com.orbithabit.app;
 
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.webkit.MimeTypeMap;
+import androidx.activity.result.ActivityResult;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.JSObject;
+
+import java.io.InputStream;
+import java.io.OutputStream;
 
 @CapacitorPlugin(name = "NativeAlarmHelper")
 public class NativeAlarmHelperPlugin extends Plugin {
@@ -525,6 +537,159 @@ public class NativeAlarmHelperPlugin extends Plugin {
             }
         } else {
             call.reject("Context is null");
+        }
+    }
+
+    private static Ringtone currentPreviewRingtone = null;
+
+    @PluginMethod
+    public void pickSound(PluginCall call) {
+        String type = call.getString("type", "system");
+        if ("file".equalsIgnoreCase(type)) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                call.reject("Custom files need Android 10+. Use a system sound instead.");
+                return;
+            }
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("audio/*");
+            startActivityForResult(call, intent, "onSoundPicked");
+        } else {
+            Intent intent = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+            intent.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION | RingtoneManager.TYPE_ALARM);
+            intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+            intent.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false);
+            startActivityForResult(call, intent, "onSoundPicked");
+        }
+    }
+
+    @ActivityCallback
+    private void onSoundPicked(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            JSObject ret = new JSObject();
+            ret.put("uri", (String) null);
+            call.resolve(ret);
+            return;
+        }
+
+        Intent data = result.getData();
+        String type = call.getString("type", "system");
+
+        if ("file".equalsIgnoreCase(type)) {
+            Uri sourceUri = data.getData();
+            if (sourceUri == null) {
+                JSObject ret = new JSObject();
+                ret.put("uri", (String) null);
+                call.resolve(ret);
+                return;
+            }
+            try {
+                Context context = getContext();
+                ContentResolver resolver = context.getContentResolver();
+                String mimeType = resolver.getType(sourceUri);
+                if (mimeType == null || mimeType.isEmpty()) {
+                    mimeType = "audio/mpeg";
+                }
+                String ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType);
+                if (ext == null || ext.isEmpty()) {
+                    ext = "mp3";
+                }
+                String displayName = "orbit_" + System.currentTimeMillis() + "." + ext;
+
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Audio.Media.DISPLAY_NAME, displayName);
+                values.put(MediaStore.Audio.Media.MIME_TYPE, mimeType);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    values.put(MediaStore.Audio.Media.RELATIVE_PATH, "Notifications/OrbitHabit");
+                    values.put(MediaStore.Audio.Media.IS_NOTIFICATION, 1);
+                }
+
+                Uri newUri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+                if (newUri == null) {
+                    call.reject("Failed to create destination audio entry in MediaStore");
+                    return;
+                }
+
+                try (InputStream in = resolver.openInputStream(sourceUri);
+                     OutputStream out = resolver.openOutputStream(newUri)) {
+                    if (in == null || out == null) {
+                        call.reject("Failed to open streams for audio copy");
+                        return;
+                    }
+                    byte[] buffer = new byte[8192];
+                    int bytesRead;
+                    while ((bytesRead = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, bytesRead);
+                    }
+                    out.flush();
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("uri", newUri.toString());
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("Failed to copy audio file: " + e.getMessage());
+            }
+        } else {
+            Uri pickedUri;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pickedUri = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri.class);
+            } else {
+                pickedUri = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+            }
+            if (pickedUri == null) {
+                pickedUri = data.getData();
+            }
+            JSObject ret = new JSObject();
+            ret.put("uri", pickedUri != null ? pickedUri.toString() : (String) null);
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void previewSound(PluginCall call) {
+        String uriStr = call.getString("uri");
+        if (uriStr == null || uriStr.isEmpty()) {
+            call.reject("uri is required");
+            return;
+        }
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+        try {
+            stopCurrentPreview();
+            Uri soundUri;
+            if ("default".equalsIgnoreCase(uriStr)) {
+                soundUri = Settings.System.DEFAULT_NOTIFICATION_URI;
+            } else {
+                soundUri = Uri.parse(uriStr);
+            }
+            currentPreviewRingtone = RingtoneManager.getRingtone(context, soundUri);
+            if (currentPreviewRingtone != null) {
+                currentPreviewRingtone.play();
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Failed to preview sound: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopPreview(PluginCall call) {
+        stopCurrentPreview();
+        call.resolve();
+    }
+
+    private synchronized void stopCurrentPreview() {
+        if (currentPreviewRingtone != null) {
+            try {
+                currentPreviewRingtone.stop();
+            } catch (Exception ignored) {
+            }
+            currentPreviewRingtone = null;
         }
     }
 }

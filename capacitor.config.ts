@@ -11,7 +11,7 @@ const config: CapacitorConfig = {
     LocalNotifications: {
       smallIcon: 'ic_stat_orbit',
       iconColor: '#00f0ff',
-      sound: 'ringtone_1.wav'
+      sound: 'ringtone_1.mp3'
     },
     SplashScreen: {
       launchShowDuration: 1500,

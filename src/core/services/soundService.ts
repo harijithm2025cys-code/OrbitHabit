@@ -1,10 +1,16 @@
+import { Capacitor } from '@capacitor/core';
+import { NativeAlarmHelper } from './notificationService';
+
 export class SoundService {
   private static currentAudio: HTMLAudioElement | null = null;
   private static playingSoundId: string | null = null;
+  private static nativeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  public static playSound(soundFile: string = 'ringtone_1.mp3', onEnded?: () => void): void {
+  public static playSound(soundFile: string = 'ringtone_1', onEnded?: () => void): void {
     try {
-      if (this.playingSoundId === soundFile && this.currentAudio) {
+      const normalize = (s: string) => (s.startsWith('uri:') ? s : s.replace(/\.(mp3|wav)$/, ''));
+
+      if (this.playingSoundId && normalize(this.playingSoundId) === normalize(soundFile)) {
         this.stopCurrentSound();
         return;
       }
@@ -13,7 +19,26 @@ export class SoundService {
 
       if (soundFile === 'silent') return;
 
-      const audioPath = `/sounds/${soundFile.replace(/\.wav$/, '.mp3')}`;
+      if (soundFile === 'default' || soundFile.startsWith('uri:')) {
+        if (Capacitor.isNativePlatform()) {
+          this.playingSoundId = soundFile;
+          NativeAlarmHelper.previewSound({
+            uri: soundFile === 'default' ? 'default' : soundFile.slice(4)
+          }).catch((err) => {
+            console.warn('Native sound preview failed:', err);
+            this.playingSoundId = null;
+          });
+
+          this.nativeTimer = setTimeout(() => {
+            this.stopCurrentSound();
+            if (onEnded) onEnded();
+          }, 5000);
+        }
+        return;
+      }
+
+      const base = soundFile.replace(/\.(mp3|wav)$/, '');
+      const audioPath = `/sounds/${base}.mp3`;
       const audio = new Audio(audioPath);
       this.currentAudio = audio;
       this.playingSoundId = soundFile;
@@ -35,12 +60,19 @@ export class SoundService {
   }
 
   public static stopCurrentSound(): void {
+    if (this.nativeTimer) {
+      clearTimeout(this.nativeTimer);
+      this.nativeTimer = null;
+    }
+    if (Capacitor.isNativePlatform()) {
+      NativeAlarmHelper.stopPreview().catch(() => {});
+    }
     if (this.currentAudio) {
       this.currentAudio.pause();
       this.currentAudio.currentTime = 0;
       this.currentAudio = null;
-      this.playingSoundId = null;
     }
+    this.playingSoundId = null;
   }
 
   public static stopSound(): void {
@@ -49,16 +81,18 @@ export class SoundService {
 
   public static isPlaying(soundId?: string): boolean {
     if (!soundId) return this.playingSoundId !== null;
-    return this.playingSoundId === soundId;
+    const normalize = (s: string) => (s.startsWith('uri:') ? s : s.replace(/\.(mp3|wav)$/, ''));
+    return this.playingSoundId !== null && normalize(this.playingSoundId) === normalize(soundId);
   }
 
   public static getAvailableSounds(): { id: string; name: string }[] {
     return [
-      { id: 'ringtone_1.mp3', name: 'Celestial Chime' },
-      { id: 'ringtone_2.mp3', name: 'Upbeat Pulse' },
-      { id: 'ringtone_3.mp3', name: 'Bright Resonance' },
-      { id: 'ringtone_4.mp3', name: 'Deep Nebula' },
-      { id: 'ringtone_5.mp3', name: 'Cosmic Bell' },
+      { id: 'ringtone_1', name: 'Celestial Chime' },
+      { id: 'ringtone_2', name: 'Upbeat Pulse' },
+      { id: 'ringtone_3', name: 'Bright Resonance' },
+      { id: 'ringtone_4', name: 'Deep Nebula' },
+      { id: 'ringtone_5', name: 'Cosmic Bell' },
+      { id: 'default', name: 'System Default' },
       { id: 'silent', name: 'Silent' }
     ];
   }

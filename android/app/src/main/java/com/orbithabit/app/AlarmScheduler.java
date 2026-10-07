@@ -69,9 +69,12 @@ public class AlarmScheduler {
             item.title = obj.optString("title", "Orbit Reminder");
             item.body = obj.optString("body", "");
             item.hour = obj.optInt("hour", 8);
-            item.minute = obj.optInt("minute", 0);
-            item.sound = obj.optString("sound", "ringtone_1").replace(".mp3", "").replace(".wav", "");
-            item.vibrate = obj.optBoolean("vibrate", true);
+            String rawSound = obj.optString("sound", "ringtone_1");
+            if (rawSound != null && rawSound.startsWith("uri:")) {
+                item.sound = rawSound;
+            } else {
+                item.sound = (rawSound != null ? rawSound : "ringtone_1").replace(".mp3", "").replace(".wav", "");
+            }
             item.enabled = obj.optBoolean("enabled", true);
             item.nextTriggerMs = obj.optLong("nextTriggerMs", 0);
 
@@ -348,17 +351,23 @@ public class AlarmScheduler {
      * Get or create appropriate notification channel ID.
      */
     public static String getChannelId(Context context, String sound, boolean vibrate) {
-        String soundClean = (sound == null ? "ringtone_1" : sound)
-                .replace(".mp3", "")
-                .replace(".wav", "")
-                .trim();
+        String raw = sound == null ? "ringtone_1" : sound.trim();
 
-        if ("silent".equalsIgnoreCase(soundClean)) {
+        if ("silent".equalsIgnoreCase(raw)) {
             return "rem_silent";
         }
 
         String vibSuffix = vibrate ? "vib" : "novib";
-        String channelId = "rem_" + soundClean + "_" + vibSuffix;
+        String soundClean;
+        String channelId;
+
+        if (raw.startsWith("uri:")) {
+            soundClean = raw;
+            channelId = "rem_u" + Integer.toHexString(raw.hashCode()) + "_" + vibSuffix;
+        } else {
+            soundClean = raw.replace(".mp3", "").replace(".wav", "");
+            channelId = "rem_" + soundClean + "_" + vibSuffix;
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
@@ -397,10 +406,43 @@ public class AlarmScheduler {
         }
     }
 
+    public static Uri resolveSoundUri(Context context, String sound) {
+        if (sound == null || "silent".equalsIgnoreCase(sound.trim())) {
+            return null;
+        }
+        String s = sound.trim();
+        if (s.startsWith("uri:")) {
+            try {
+                Uri parsed = Uri.parse(s.substring(4));
+                if (parsed != null && parsed.getScheme() != null) {
+                    return parsed;
+                }
+            } catch (Exception ignored) {}
+            return android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
+        }
+        if ("default".equalsIgnoreCase(s)) {
+            return android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
+        }
+        String soundClean = s.replace(".mp3", "").replace(".wav", "");
+        int resId = context.getResources().getIdentifier(soundClean, "raw", context.getPackageName());
+        if (resId != 0) {
+            return Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
+        } else {
+            return android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
+        }
+    }
+
     private static void createSpecificChannel(Context context, NotificationManager nm, String channelId, String soundClean, boolean vibrate) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
-        String soundTitle = "default".equals(soundClean) ? "System Sound" : soundClean.replace("_", " ");
+        String soundTitle;
+        if (soundClean != null && soundClean.startsWith("uri:")) {
+            soundTitle = "Custom Sound";
+        } else if ("default".equalsIgnoreCase(soundClean)) {
+            soundTitle = "System Sound";
+        } else {
+            soundTitle = soundClean != null ? soundClean.replace("_", " ") : "Sound";
+        }
         String name = "Orbit - " + soundTitle + " (" + (vibrate ? "Vibrate" : "No Vibrate") + ")";
 
         NotificationChannel channel = new NotificationChannel(
@@ -423,18 +465,8 @@ public class AlarmScheduler {
                 .setUsage(AudioAttributes.USAGE_ALARM)
                 .build();
 
-        if ("default".equals(soundClean)) {
-            Uri defaultSoundUri = android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
-            channel.setSound(defaultSoundUri, audioAttributes);
-        } else {
-            int resId = context.getResources().getIdentifier(soundClean, "raw", context.getPackageName());
-            if (resId != 0) {
-                Uri soundUri = Uri.parse("android.resource://" + context.getPackageName() + "/" + resId);
-                channel.setSound(soundUri, audioAttributes);
-            } else {
-                channel.setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI, audioAttributes);
-            }
-        }
+        Uri soundUri = resolveSoundUri(context, soundClean);
+        channel.setSound(soundUri, audioAttributes);
 
         nm.createNotificationChannel(channel);
     }

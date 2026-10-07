@@ -83,9 +83,12 @@ interface NativeAlarmHelperPluginType {
   getNotificationLaunchHabitId(): Promise<{ habitId: string | null }>;
   setChatStyleEnabled(options: { enabled: boolean }): Promise<{ success: boolean; enabled: boolean }>;
   isChatStyleEnabled(): Promise<{ enabled: boolean }>;
+  pickSound(o: { type: 'system' | 'file' }): Promise<{ uri: string | null }>;
+  previewSound(o: { uri: string }): Promise<void>;
+  stopPreview(): Promise<void>;
 }
 
-const NativeAlarmHelper = registerPlugin<NativeAlarmHelperPluginType>('NativeAlarmHelper');
+export const NativeAlarmHelper = registerPlugin<NativeAlarmHelperPluginType>('NativeAlarmHelper');
 
 const DAYS_MAP = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -365,9 +368,10 @@ export class NotificationService {
 
     try {
       const [hours, minutes] = reminder.time.split(':').map(Number);
-      const soundClean = (reminder.sound || 'ringtone_1')
-        .replace(/\.mp3$|\.wav$/, '')
-        .trim();
+      const rawSound = reminder.sound || 'ringtone_1';
+      const soundClean = rawSound.startsWith('uri:')
+        ? rawSound
+        : rawSound.replace(/\.mp3$|\.wav$/, '').trim();
 
       const daysToSchedule: number[] =
         reminder.days && reminder.days.length > 0
@@ -502,7 +506,7 @@ export class NotificationService {
     sound = 'ringtone_1'
   ): Promise<void> {
     try {
-      const soundClean = sound.replace(/\.mp3$|\.wav$/, '');
+      const soundClean = sound.startsWith('uri:') ? sound : sound.replace(/\.mp3$|\.wav$/, '');
       const testId = generateId('test_alarm');
 
       const now = new Date(Date.now() + delaySeconds * 1000);
@@ -555,6 +559,10 @@ export class NotificationService {
       if (Capacitor.isNativePlatform() && enabledList.length > 0) {
         const nativeItems: NativeReminderItem[] = enabledList.map((r) => {
           const [hours, minutes] = r.time.split(':').map(Number);
+          const rawSound = r.sound || 'ringtone_1';
+          const soundClean = rawSound.startsWith('uri:')
+            ? rawSound
+            : rawSound.replace(/\.mp3$|\.wav$/, '');
           return {
             id: r.id,
             habitId: r.habit_id || '',
@@ -563,7 +571,7 @@ export class NotificationService {
             hour: hours,
             minute: minutes,
             weekdays: r.days && r.days.length > 0 ? r.days : [0, 1, 2, 3, 4, 5, 6],
-            sound: (r.sound || 'ringtone_1').replace(/\.mp3$|\.wav$/, ''),
+            sound: soundClean,
             vibrate: r.vibrate !== 0,
             enabled: true
           };
@@ -575,6 +583,26 @@ export class NotificationService {
     } catch (err) {
       console.warn('Failed to reschedule reminders safety sync:', err);
     }
+  }
+
+  /**
+   * Opens the system ringtone/alarm sound picker or system file picker to select an audio file.
+   * Returns a 'uri:<content-uri>' string, or null if cancelled or on web.
+   */
+  public static async pickSound(type: 'system' | 'file'): Promise<string | null> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await NativeAlarmHelper.pickSound({ type });
+        if (res && res.uri) {
+          return `uri:${res.uri}`;
+        }
+        return null;
+      } catch (err) {
+        console.warn('Failed to pick sound:', err);
+        throw err;
+      }
+    }
+    return null;
   }
 
   /**

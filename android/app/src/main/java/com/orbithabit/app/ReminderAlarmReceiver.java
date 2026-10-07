@@ -202,6 +202,13 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
             builder.setStyle(new NotificationCompat.BigTextStyle().bigText(messageText));
         }
 
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            android.net.Uri resolvedUri = AlarmScheduler.resolveSoundUri(context, sound);
+            if (resolvedUri != null) {
+                builder.setSound(resolvedUri);
+            }
+        }
+
         if (vibrate) {
             builder.setVibrate(new long[]{0, 400, 200, 400});
         }

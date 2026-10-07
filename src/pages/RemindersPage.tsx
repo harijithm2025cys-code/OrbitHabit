@@ -189,6 +189,7 @@ export const RemindersPage: React.FC<RemindersPageProps> = ({ onBack, onShowToas
   };
 
   const getSoundLabel = (soundFile: string) => {
+    if (soundFile?.startsWith('uri:')) return 'Custom sound';
     const item = SoundService.getAvailableSounds().find((s) => s.id === soundFile);
     return item?.name || soundFile;
   };
@@ -416,40 +417,79 @@ export const RemindersPage: React.FC<RemindersPageProps> = ({ onBack, onShowToas
           </div>
 
           {/* Sound Picker */}
-          <div>
-            <label className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1.5">
-              Ringtone / Sound
-            </label>
-            <div className="space-y-1.5">
-              {SoundService.getAvailableSounds().map((snd) => (
-                <div
-                  key={snd.id}
-                  onClick={() => setSound(snd.id)}
-                  className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer text-xs transition ${
-                    sound === snd.id
-                      ? 'border-neon-purple bg-neon-purple/15 text-[var(--text-main)]'
-                      : 'border-[var(--border-subtle)] bg-space-800 text-[var(--text-muted)] hover:text-[var(--text-main)]'
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider block">
+                Ringtone / Sound
+              </label>
+              <span className="text-[10px] text-neon-purple/80 font-mono">
+                Plays at alarm volume
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={sound}
+                onChange={(e) => setSound(e.target.value)}
+                className="flex-1 bg-space-800 border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-xs text-[var(--text-main)] focus:border-neon-purple focus:outline-none"
+              >
+                {sound?.startsWith('uri:') && (
+                  <option value={sound}>Custom sound</option>
+                )}
+                {SoundService.getAvailableSounds().map((snd) => (
+                  <option key={snd.id} value={snd.id}>
+                    {snd.name}
+                  </option>
+                ))}
+              </select>
+              {sound !== 'silent' && (
+                <button
+                  type="button"
+                  onClick={() => handleSoundPreview(sound)}
+                  className={`p-2 rounded-xl border ${
+                    playingSound === sound
+                      ? 'bg-neon-purple text-white border-neon-purple'
+                      : 'bg-space-800 text-[var(--text-muted)] border-[var(--border-subtle)] hover:text-[var(--text-main)]'
                   }`}
                 >
-                  <span>{snd.name}</span>
-                  {snd.id !== 'silent' && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSoundPreview(snd.id);
-                      }}
-                      className="p-1 rounded bg-space-700 hover:bg-space-600"
-                    >
-                      {playingSound === snd.id ? (
-                        <Square className="w-3 h-3 fill-rose-500 text-rose-500" />
-                      ) : (
-                        <Play className="w-3 h-3 fill-neon-cyan text-neon-cyan" />
-                      )}
-                    </button>
+                  {playingSound === sound ? (
+                    <Square className="w-4 h-4 fill-rose-500 text-rose-500" />
+                  ) : (
+                    <Play className="w-4 h-4 fill-neon-cyan text-neon-cyan" />
                   )}
-                </div>
-              ))}
+                </button>
+              )}
+            </div>
+
+            {/* Custom sound pickers */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const s = await NotificationService.pickSound('system');
+                    if (s) setSound(s);
+                  } catch (err: any) {
+                    if (onShowToast) onShowToast('error', err?.message || 'Failed to pick system sound');
+                  }
+                }}
+                className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-neon-cyan/30 bg-neon-cyan/10 hover:bg-neon-cyan/20 text-neon-cyan text-xs font-semibold transition"
+              >
+                <span>🔔 Phone sounds</span>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const s = await NotificationService.pickSound('file');
+                    if (s) setSound(s);
+                  } catch (err: any) {
+                    if (onShowToast) onShowToast('error', err?.message || 'Failed to pick audio file');
+                  }
+                }}
+                className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-neon-purple/30 bg-neon-purple/10 hover:bg-neon-purple/20 text-neon-purple text-xs font-semibold transition"
+              >
+                <span>📁 My file</span>
+              </button>
             </div>
           </div>
 
