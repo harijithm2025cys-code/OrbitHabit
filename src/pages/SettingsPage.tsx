@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Bell,
   Shield,
-  Download,
   Upload,
   Sparkles,
   RotateCcw,
@@ -13,9 +12,12 @@ import {
   XCircle,
   AlertTriangle,
   Moon,
-  Sun
+  Sun,
+  Share2,
+  HardDrive
 } from 'lucide-react';
 import { Share } from '@capacitor/share';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
 import { GlassCard } from '../components/ui/GlassCard';
 import { Toggle } from '../components/ui/Toggle';
@@ -52,6 +54,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
     setHapticsEnabled,
     soundEnabled,
     setSoundEnabled,
+    chatStyleNotificationEnabled,
+    setChatStyleNotificationEnabled,
     pinLockEnabled,
     setPinLock,
     currency,
@@ -77,6 +81,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
 
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+
+  // Safe Restore Confirmation Modal State
+  const [pendingRestore, setPendingRestore] = useState<{
+    fileName: string;
+    fileText: string;
+    exportDate: string;
+    habitCount: number;
+    logCount: number;
+    transactionCount: number;
+  } | null>(null);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   // Health Check Modal (Fix C.2)
   const [showHealthModal, setShowHealthModal] = useState(false);
@@ -170,21 +186,41 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
     if (onShowToast) onShowToast('success', 'PIN Vault enabled for Money Ledger!');
   };
 
+  const getBackupFileName = () => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const HH = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+    return `OrbitHabit_Backup_${yyyy}-${mm}-${dd}_${HH}${min}.json`;
+  };
+
   const handleExportBackup = async () => {
     try {
       const backupStr = await BackupService.exportToJsonString();
+      const fileName = getBackupFileName();
+
       if (Capacitor.isNativePlatform()) {
+        const w = await Filesystem.writeFile({
+          path: fileName,
+          data: backupStr,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8
+        });
+
         await Share.share({
-          title: 'OrbitHabit_Backup.json',
-          text: backupStr,
-          dialogTitle: 'Export OrbitHabit Backup'
+          title: fileName,
+          text: 'OrbitHabit backup',
+          files: [w.uri],
+          dialogTitle: 'Save or send backup'
         });
       } else {
         const blob = new Blob([backupStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `OrbitHabit_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = fileName;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -192,6 +228,46 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
     } catch (err: any) {
       console.error('Export error:', err);
       if (onShowToast) onShowToast('error', 'Failed to export backup.');
+    }
+  };
+
+  const handleSaveToDevice = async () => {
+    try {
+      const backupStr = await BackupService.exportToJsonString();
+      const fileName = getBackupFileName();
+
+      if (Capacitor.isNativePlatform()) {
+        try {
+          await Filesystem.mkdir({
+            path: 'OrbitHabit',
+            directory: Directory.Documents,
+            recursive: true
+          });
+        } catch {
+          // Directory may already exist
+        }
+
+        const w = await Filesystem.writeFile({
+          path: `OrbitHabit/${fileName}`,
+          data: backupStr,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8
+        });
+
+        if (onShowToast) onShowToast('success', `Saved to ${w.uri || `Documents/OrbitHabit/${fileName}`}`);
+      } else {
+        const blob = new Blob([backupStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        if (onShowToast) onShowToast('success', `Downloaded ${fileName}`);
+      }
+    } catch (err: any) {
+      console.error('Save to device error:', err);
+      if (onShowToast) onShowToast('error', `Failed to save file: ${err?.message || 'Permission denied'}`);
     }
   };
 
@@ -204,12 +280,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
       reader.onload = async (event) => {
         const text = event.target?.result as string;
         try {
-          await BackupService.importFromJsonString(text);
-          await loadHabits();
-          await loadAccounts();
-          if (onShowToast) onShowToast('success', 'Database restored successfully from backup!');
+          // Validate by CONTENT (appName === 'OrbitHabit')
+          const parsed = BackupService.parseAndValidate(text);
+
+          const exportDateStr = parsed.exported_at
+            ? new Date(parsed.exported_at).toLocaleString([], {
+                dateStyle: 'medium',
+                timeStyle: 'short'
+              })
+            : 'Unknown date';
+
+          setPendingRestore({
+            fileName: file.name,
+            fileText: text,
+            exportDate: exportDateStr,
+            habitCount: parsed.data.habits?.length || 0,
+            logCount: parsed.data.habit_logs?.length || 0,
+            transactionCount: parsed.data.transactions?.length || 0
+          });
+          setShowRestoreModal(true);
         } catch (err: any) {
-          if (onShowToast) onShowToast('error', err?.message || 'Invalid backup file.');
+          if (onShowToast) onShowToast('error', err?.message || 'Invalid OrbitHabit backup file.');
         }
       };
       reader.readAsText(file);
@@ -217,6 +308,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
       if (onShowToast) onShowToast('error', 'Failed to read file.');
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleConfirmRestore = async () => {
+    if (!pendingRestore) return;
+    setIsRestoring(true);
+    try {
+      await BackupService.importFromJsonString(pendingRestore.fileText);
+      await loadHabits();
+      await loadAccounts();
+      setShowRestoreModal(false);
+      setPendingRestore(null);
+      if (onShowToast) onShowToast('success', 'Database restored successfully from backup!');
+    } catch (err: any) {
+      console.error('Restore error:', err);
+      if (onShowToast) onShowToast('error', err?.message || 'Failed to restore backup.');
+    } finally {
+      setIsRestoring(false);
     }
   };
 
@@ -308,6 +417,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
         <p className="text-xs text-[var(--text-muted)]">
           Manage standalone alarms and verify native device notification health.
         </p>
+
+        <div className="pt-2 pb-1 border-t border-b border-[var(--border-subtle)]">
+          <Toggle
+            checked={chatStyleNotificationEnabled}
+            onChange={(val) => {
+              setChatStyleNotificationEnabled(val);
+              NotificationService.setChatStyleNotification(val);
+              if (onShowToast) {
+                onShowToast(
+                  'info',
+                  val ? 'Left tile avatar enabled (chat style)' : 'Standard notification style enabled'
+                );
+              }
+            }}
+            label="Show logo on left (chat style)"
+            description="Displays OrbitHabit avatar on the left tile using conversation style (OriginOS/Vivo fix)"
+          />
+        </div>
+
         <div className="grid grid-cols-2 gap-2 pt-1">
           <NeonButton
             variant="secondary"
@@ -394,30 +522,40 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
       {/* Data Management (F5) */}
       <GlassCard className="p-4 space-y-3">
         <h3 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider font-mono">
-          Data Management
+          Data Management & Backups
         </h3>
 
-        <div className="grid grid-cols-2 gap-2">
-          <NeonButton
-            variant="secondary"
-            size="sm"
-            className="w-full font-semibold"
-            onClick={handleExportBackup}
-          >
-            <Download className="w-3.5 h-3.5 mr-1" /> Export Backup
-          </NeonButton>
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <NeonButton
+              variant="secondary"
+              size="sm"
+              className="w-full font-semibold"
+              onClick={handleExportBackup}
+            >
+              <Share2 className="w-3.5 h-3.5 mr-1 text-neon-cyan" /> Share Backup
+            </NeonButton>
+            <NeonButton
+              variant="secondary"
+              size="sm"
+              className="w-full font-semibold"
+              onClick={handleSaveToDevice}
+            >
+              <HardDrive className="w-3.5 h-3.5 mr-1 text-neon-emerald" /> Save to Device
+            </NeonButton>
+          </div>
           <NeonButton
             variant="secondary"
             size="sm"
             className="w-full font-semibold"
             onClick={() => fileInputRef.current?.click()}
           >
-            <Upload className="w-3.5 h-3.5 mr-1" /> Restore JSON
+            <Upload className="w-3.5 h-3.5 mr-1 text-neon-purple" /> Restore from JSON
           </NeonButton>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json,application/json"
+            accept="application/json,.json,text/plain"
             className="hidden"
             onChange={handleImportFileChange}
           />
@@ -824,6 +962,82 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onNavigate, onShowTo
             Tip: Tap "Test in 2 Mins", swipe away OrbitHabit from recents, lock the phone screen, and observe it ring at the exact minute.
           </p>
         </div>
+      </Modal>
+
+      {/* Restore Confirmation Modal */}
+      <Modal
+        isOpen={showRestoreModal}
+        onClose={() => {
+          if (!isRestoring) {
+            setShowRestoreModal(false);
+            setPendingRestore(null);
+          }
+        }}
+        title="Restore OrbitHabit Backup?"
+      >
+        {pendingRestore && (
+          <div className="space-y-4 text-xs">
+            <div className="p-3.5 rounded-xl bg-space-900 border border-neon-cyan/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[var(--text-muted)]">File Name</span>
+                <span className="font-mono text-neon-cyan font-bold truncate max-w-[200px]">
+                  {pendingRestore.fileName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[var(--text-muted)]">Exported On</span>
+                <span className="font-mono text-[var(--text-main)]">
+                  {pendingRestore.exportDate}
+                </span>
+              </div>
+              <div className="pt-2 border-t border-white/5 grid grid-cols-3 gap-2 text-center">
+                <div className="p-2 rounded-lg bg-space-800/80">
+                  <span className="block text-[10px] text-[var(--text-dim)] uppercase">Habits</span>
+                  <span className="font-bold text-neon-purple text-sm">{pendingRestore.habitCount}</span>
+                </div>
+                <div className="p-2 rounded-lg bg-space-800/80">
+                  <span className="block text-[10px] text-[var(--text-dim)] uppercase">Logs</span>
+                  <span className="font-bold text-neon-cyan text-sm">{pendingRestore.logCount}</span>
+                </div>
+                <div className="p-2 rounded-lg bg-space-800/80">
+                  <span className="block text-[10px] text-[var(--text-dim)] uppercase">Money Tx</span>
+                  <span className="font-bold text-neon-emerald text-sm">{pendingRestore.transactionCount}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-[11px] text-amber-200 leading-relaxed">
+                Restoring will replace current database tables with this backup. An automatic safety snapshot will be taken first, rolling back if anything goes wrong.
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 pt-1">
+              <NeonButton
+                variant="secondary"
+                size="md"
+                className="flex-1"
+                disabled={isRestoring}
+                onClick={() => {
+                  setShowRestoreModal(false);
+                  setPendingRestore(null);
+                }}
+              >
+                Cancel
+              </NeonButton>
+              <NeonButton
+                variant="primary"
+                size="md"
+                className="flex-1 font-bold"
+                disabled={isRestoring}
+                onClick={handleConfirmRestore}
+              >
+                {isRestoring ? 'Restoring...' : 'Confirm Restore'}
+              </NeonButton>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Reset All Data Safety Modal */}

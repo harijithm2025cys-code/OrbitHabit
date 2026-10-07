@@ -50,6 +50,7 @@ interface SettingsState {
   pinCode: string;
   isUnlocked: boolean;
   currency: string;
+  chatStyleNotificationEnabled: boolean;
   // Profile & Onboarding
   userName: string;
   userAge: string;
@@ -59,6 +60,7 @@ interface SettingsState {
   setTheme: (theme: ThemeMode) => void;
   setHapticsEnabled: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
+  setChatStyleNotificationEnabled: (enabled: boolean) => void;
   setPinLock: (enabled: boolean, pin?: string) => void;
   unlockWithPin: (pin: string) => boolean;
   setCurrency: (currency: string) => void;
@@ -77,6 +79,7 @@ export const useSettingsStore = create<SettingsState>()(
       pinCode: '1234',
       isUnlocked: true,
       currency: 'INR',
+      chatStyleNotificationEnabled: true,
       userName: 'Orbit Traveler',
       userAge: '',
       userFocus: 'Productivity & Fitness',
@@ -95,6 +98,7 @@ export const useSettingsStore = create<SettingsState>()(
         }
       },
       setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
+      setChatStyleNotificationEnabled: (chatStyleNotificationEnabled) => set({ chatStyleNotificationEnabled }),
       setPinLock: (enabled, pin = '1234') =>
         set({ pinLockEnabled: enabled, pinCode: pin, isUnlocked: !enabled }),
       unlockWithPin: (pin) => {
@@ -121,6 +125,7 @@ export const useSettingsStore = create<SettingsState>()(
           pinCode: '1234',
           isUnlocked: true,
           currency: 'INR',
+          chatStyleNotificationEnabled: true,
           userName: 'Orbit Traveler',
           userAge: '',
           userFocus: 'Productivity & Fitness',

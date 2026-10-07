@@ -21,6 +21,8 @@ export const App: React.FC = () => {
         await useHabitStore.getState().loadHabits();
         await NotificationService.processPendingActions();
         await NotificationService.initializeChannels();
+        const chatStyle = useSettingsStore.getState().chatStyleNotificationEnabled;
+        await NotificationService.setChatStyleNotification(chatStyle !== false);
         await NotificationService.rescheduleAllReminders();
       } catch (err) {
         console.error('Failed to initialize database:', err);

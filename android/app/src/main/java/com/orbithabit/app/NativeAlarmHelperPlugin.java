@@ -56,6 +56,30 @@ public class NativeAlarmHelperPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setChatStyleEnabled(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context is null");
+            return;
+        }
+        boolean enabled = call.getBoolean("enabled", true);
+        AlarmScheduler.setChatStyleEnabled(context, enabled);
+        JSObject ret = new JSObject();
+        ret.put("success", true);
+        ret.put("enabled", enabled);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void isChatStyleEnabled(PluginCall call) {
+        Context context = getContext();
+        boolean enabled = AlarmScheduler.isChatStyleEnabled(context);
+        JSObject ret = new JSObject();
+        ret.put("enabled", enabled);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
     public void requestIgnoreBatteryOptimization(PluginCall call) {
         Context context = getContext();
         if (context == null) {

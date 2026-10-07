@@ -6,7 +6,7 @@ import { logRepository } from '../db/repositories/logRepo';
 import { habitRepository } from '../db/repositories/habitRepo';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useHabitStore } from '../../store/useHabitStore';
-import { getTodayString } from '../utils/date';
+import { getTodayString, formatDateString } from '../utils/date';
 import { generateId, habitNotifId } from '../utils/id';
 import { HabitLog } from '../types/log';
 
@@ -81,6 +81,8 @@ interface NativeAlarmHelperPluginType {
   clearPendingActions(): Promise<{ success: boolean }>;
   getLastDeliveredAlarm(): Promise<{ title: string | null; timeMs: number }>;
   getNotificationLaunchHabitId(): Promise<{ habitId: string | null }>;
+  setChatStyleEnabled(options: { enabled: boolean }): Promise<{ success: boolean; enabled: boolean }>;
+  isChatStyleEnabled(): Promise<{ enabled: boolean }>;
 }
 
 const NativeAlarmHelper = registerPlugin<NativeAlarmHelperPluginType>('NativeAlarmHelper');
@@ -454,9 +456,12 @@ export class NotificationService {
 
       console.log(`[NotificationService] Processing ${actions.length} pending notification actions:`, actions);
 
-      const todayStr = getTodayString();
-
       for (const act of actions) {
+        // Use local date when the button was tapped (act.timestamp), so Done tapped late at night counts for that day
+        const actionDateStr = act.timestamp
+          ? formatDateString(new Date(act.timestamp))
+          : getTodayString();
+
         if (act.action === 'DONE' && act.habitId) {
           try {
             const habit =
@@ -464,19 +469,19 @@ export class NotificationService {
               useHabitStore.getState().habits.find((h) => h.id === act.habitId);
 
             if (habit) {
-              const existing = await logRepository.getLog(act.habitId, todayStr);
+              const existing = await logRepository.getLog(act.habitId, actionDateStr);
               const targetVal = habit.target_value || 1;
               const log: HabitLog = {
                 id: existing?.id || generateId('log'),
                 habit_id: act.habitId,
-                date: todayStr,
+                date: actionDateStr,
                 progress: targetVal,
                 completed: 1,
-                completed_at: Date.now(),
+                completed_at: act.timestamp || Date.now(),
                 source: 'manual'
               };
               await logRepository.upsertLog(log);
-              console.log(`[NotificationService] Applied DONE action for habit: ${habit.name} (${habit.id})`);
+              console.log(`[NotificationService] Applied DONE action for habit: ${habit.name} (${habit.id}) on date ${actionDateStr}`);
             }
           } catch (err) {
             console.error(`Failed to apply pending action for habit ${act.habitId}:`, err);
@@ -570,5 +575,33 @@ export class NotificationService {
     } catch (err) {
       console.warn('Failed to reschedule reminders safety sync:', err);
     }
+  }
+
+  /**
+   * Configures whether notifications render chat-style avatar on the left (MessagingStyle).
+   */
+  public static async setChatStyleNotification(enabled: boolean): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await NativeAlarmHelper.setChatStyleEnabled({ enabled });
+      } catch (err) {
+        console.warn('Failed to set chat style notification preference:', err);
+      }
+    }
+  }
+
+  /**
+   * Checks if chat-style notifications are enabled on the native device.
+   */
+  public static async isChatStyleNotification(): Promise<boolean> {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const res = await NativeAlarmHelper.isChatStyleEnabled();
+        return res.enabled;
+      } catch (err) {
+        console.warn('Failed to query chat style preference:', err);
+      }
+    }
+    return true;
   }
 }

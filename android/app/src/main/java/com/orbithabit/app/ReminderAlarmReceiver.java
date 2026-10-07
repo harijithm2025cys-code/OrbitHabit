@@ -5,19 +5,30 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
+import androidx.core.content.pm.ShortcutInfoCompat;
+import androidx.core.content.pm.ShortcutManagerCompat;
+import androidx.core.graphics.drawable.IconCompat;
 
 import java.util.List;
 
 /**
  * BroadcastReceiver triggered by AlarmManager when an exact reminder alarm fires.
  *
- * Posts the native high-priority notification with customized sound channel,
- * Done / Snooze action buttons, full-screen lockscreen capability,
- * and immediately calculates & arms the next occurrence.
+ * Posts high-priority native notification with:
+ * - MessagingStyle avatar on the LEFT (fixes OriginOS/Vivo default blue X icon)
+ * - Round full-colour OrbitHabit logo decoded from ic_notification_large
+ * - Action buttons ("✓ Done", "⏱ Snooze 10m")
+ * - Full-screen intent for lockscreen alert
+ * - Configurable chat-style vs standard style toggle
+ * - Dynamic conversation shortcut for Android 11+
+ * - Automatic re-arming for the next scheduled occurrence
  */
 public class ReminderAlarmReceiver extends BroadcastReceiver {
 
@@ -65,6 +76,23 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         String channelId = AlarmScheduler.getChannelId(context, sound, vibrate);
         int notifId = id != null ? Math.abs(id.hashCode() % 1_000_000_000) : 1001;
 
+        // Clean title and body so we never repeat the app name or title
+        String habitTitle = title;
+        if (habitTitle == null || habitTitle.trim().isEmpty() || "Orbit Habit Reminder".equalsIgnoreCase(habitTitle.trim())) {
+            habitTitle = "Daily Habit";
+        } else if (habitTitle.startsWith("OrbitHabit: ")) {
+            habitTitle = habitTitle.substring("OrbitHabit: ".length()).trim();
+        } else if (habitTitle.startsWith("OrbitHabit - ")) {
+            habitTitle = habitTitle.substring("OrbitHabit - ".length()).trim();
+        }
+
+        String messageText;
+        if (body != null && !body.isEmpty() && !body.equals("Time to complete your habit mission!") && !body.equalsIgnoreCase(habitTitle)) {
+            messageText = body;
+        } else {
+            messageText = "Time for " + habitTitle + "!";
+        }
+
         // Content Intent: Open Habit in MainActivity
         Intent openIntent = new Intent(context, MainActivity.class);
         openIntent.setAction(Intent.ACTION_VIEW);
@@ -95,7 +123,7 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         snoozeIntent.setAction(ACTION_SNOOZE);
         snoozeIntent.putExtra("id", id);
         snoozeIntent.putExtra("habit_id", habitId);
-        snoozeIntent.putExtra("title", title);
+        snoozeIntent.putExtra("title", habitTitle);
         snoozeIntent.putExtra("sound", sound);
         snoozeIntent.putExtra("vibrate", vibrate);
         snoozeIntent.putExtra("notif_id", notifId);
@@ -106,18 +134,21 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        int iconRes = context.getResources().getIdentifier("ic_stat_orbit", "drawable", context.getPackageName());
-        if (iconRes == 0) {
-            iconRes = R.mipmap.ic_launcher;
+        // Decode round full-colour logo bitmap from res/drawable-nodpi/ic_notification_large
+        Bitmap logoBitmap = null;
+        try {
+            logoBitmap = BitmapFactory.decodeResource(context.getResources(), R.drawable.ic_notification_large);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to decode ic_notification_large bitmap: " + e.getMessage());
         }
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(iconRes)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                .setSmallIcon(R.drawable.ic_stat_orbit)
+                .setColor(0xFF00F0FF)
+                .setContentTitle(habitTitle)
+                .setContentText(messageText)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
                 .setContentIntent(contentPendingIntent)
@@ -125,12 +156,58 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
                 .addAction(0, "✓ Done", donePendingIntent)
                 .addAction(0, "⏱ Snooze 10m", snoozePendingIntent);
 
+        if (logoBitmap != null) {
+            builder.setLargeIcon(logoBitmap);
+        }
+
+        // Check if chat-style notification is enabled (default ON)
+        boolean isChatStyle = AlarmScheduler.isChatStyleEnabled(context);
+
+        if (isChatStyle && logoBitmap != null) {
+            // Build Person for MessagingStyle avatar
+            Person appPerson = new Person.Builder()
+                    .setName("OrbitHabit")
+                    .setIcon(IconCompat.createWithBitmap(logoBitmap))
+                    .setKey("orbithabit")
+                    .build();
+
+            NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(appPerson)
+                    .setConversationTitle(habitTitle);
+            style.addMessage(messageText, System.currentTimeMillis(), appPerson);
+
+            builder.setStyle(style);
+
+            // For Android 11+ (API 30+), publish dynamic shortcut so OriginOS/system UI treats it as a conversation
+            // and renders the round avatar on the LEFT tile
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                String effectiveHabitId = (habitId != null && !habitId.isEmpty()) ? habitId : (id != null ? id : "orbit");
+                String shortcutId = "habit_" + effectiveHabitId;
+                try {
+                    ShortcutInfoCompat shortcut = new ShortcutInfoCompat.Builder(context, shortcutId)
+                            .setShortLabel(habitTitle)
+                            .setLongLabel("OrbitHabit: " + habitTitle)
+                            .setIcon(IconCompat.createWithBitmap(logoBitmap))
+                            .setIntent(openIntent)
+                            .setLongLived(true)
+                            .setPerson(appPerson)
+                            .build();
+                    ShortcutManagerCompat.pushDynamicShortcut(context, shortcut);
+                    builder.setShortcutId(shortcutId);
+                } catch (Exception se) {
+                    Log.w(TAG, "Error pushing dynamic shortcut for habit conversation: " + se.getMessage());
+                }
+            }
+        } else {
+            // Standard notification style (BigTextStyle)
+            builder.setStyle(new NotificationCompat.BigTextStyle().bigText(messageText));
+        }
+
         if (vibrate) {
             builder.setVibrate(new long[]{0, 400, 200, 400});
         }
 
         nm.notify(notifId, builder.build());
-        Log.i(TAG, "Notification posted for \"" + title + "\" on channel " + channelId);
+        Log.i(TAG, "Notification posted for \"" + habitTitle + "\" [chatStyle=" + isChatStyle + "] on channel " + channelId);
     }
 
     private void reArmNextOccurrence(Context context, String reminderId) {

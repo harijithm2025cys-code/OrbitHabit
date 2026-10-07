@@ -35,6 +35,19 @@ public class AlarmScheduler {
     public static final String KEY_PENDING_ACTIONS = "orbit_pending_actions";
     public static final String KEY_LAST_DELIVERED_TITLE = "orbit_last_delivered_title";
     public static final String KEY_LAST_DELIVERED_TIME = "orbit_last_delivered_time";
+    public static final String KEY_CHAT_STYLE = "orbit_chat_style_enabled";
+
+    public static boolean isChatStyleEnabled(Context context) {
+        if (context == null) return true;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_CHAT_STYLE, true);
+    }
+
+    public static void setChatStyleEnabled(Context context, boolean enabled) {
+        if (context == null) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putBoolean(KEY_CHAT_STYLE, enabled).apply();
+    }
 
     public static class ReminderItem {
         public String id;
